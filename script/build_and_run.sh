@@ -192,9 +192,9 @@ cat >"$INFO_PLIST" <<PLIST
   <key>LSMultipleInstancesProhibited</key>
   <true/>
   <key>CFBundleShortVersionString</key>
-  <string>0.8.4</string>
+  <string>0.8.5</string>
   <key>CFBundleVersion</key>
-  <string>25</string>
+  <string>26</string>
   <key>LSMinimumSystemVersion</key>
   <string>$MIN_SYSTEM_VERSION</string>
   <key>NSPrincipalClass</key>

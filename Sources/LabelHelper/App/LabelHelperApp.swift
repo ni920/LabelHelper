@@ -3,9 +3,16 @@ import Sparkle
 import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    let updaterController = SPUStandardUpdaterController(
+        startingUpdater: true,
+        updaterDelegate: nil,
+        userDriverDelegate: nil
+    )
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+        updaterController.updater.checkForUpdatesInBackground()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -24,11 +31,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct LabelHelperApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var appStore = AppStore()
-    private let updaterController = SPUStandardUpdaterController(
-        startingUpdater: true,
-        updaterDelegate: nil,
-        userDriverDelegate: nil
-    )
 
     var body: some Scene {
         Window("Label Helper", id: "main") {
@@ -45,9 +47,9 @@ struct LabelHelperApp: App {
         .commands {
             CommandGroup(after: .appInfo) {
                 Button("Nach Updates suchen …") {
-                    updaterController.checkForUpdates(nil)
+                    appDelegate.updaterController.checkForUpdates(nil)
                 }
-                .disabled(!updaterController.updater.canCheckForUpdates)
+                .disabled(!appDelegate.updaterController.updater.canCheckForUpdates)
             }
 
             ShippingCommands(appStore: appStore)
