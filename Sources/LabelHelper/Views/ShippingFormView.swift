@@ -73,7 +73,9 @@ struct ShippingFormView: View {
                                 Text("\(stamp.amount) € · …\(stamp.id.suffix(8))").tag(stamp.id)
                             }
                         }
-                        Text("Beide Etiketten: \(appStore.selectedLetterLabelFormat.sizeDescription). Bitte die für deinen Brief passende Frankierung auswählen.")
+                        Text(appStore.labelStockMode == .continuous100
+                             ? "Adresse und Briefmarke werden einzeln auf die benötigte Länge angepasst. Bitte die passende Frankierung auswählen."
+                             : "Beide Etiketten: \(appStore.selectedLetterLabelFormat.sizeDescription). Bitte die für deinen Brief passende Frankierung auswählen.")
                             .font(.caption).foregroundStyle(.secondary)
                         if availableStamps.isEmpty {
                             Button("Briefmarken-PDF importieren …") { appStore.showPostageImporter = true }

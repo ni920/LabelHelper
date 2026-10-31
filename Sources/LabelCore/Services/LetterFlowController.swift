@@ -27,7 +27,8 @@ public final class LetterFlowController: ObservableObject {
     public func start(_ id: UUID) {
         guard activeFlowID == nil, let flow = store.flow(id), flow.stage == .ready || flow.stage == .addressPrinted else { return }
         guard isReady() else { message = "Bitte den RW403B verbinden und die Materialeinstellung prüfen. Endlosrollen benötigen Firmware ab 1.1.49."; return }
-        guard store.storageError == nil, postage.reserve(flow.stamp.id, for: flow.id) else {
+        guard store.storageError == nil else { message = store.storageError; return }
+        if flow.needsPostagePrint && !reserveStamp(for: flow) {
             message = store.storageError ?? postage.storageError ?? "Die gewählte Briefmarke ist nicht mehr verfügbar."
             return
         }
@@ -35,8 +36,46 @@ public final class LetterFlowController: ObservableObject {
         if flow.stage == .ready { printAddress(flow) } else { printStamp(flow) }
     }
 
+    public func reprintUnavailableReason(_ id: UUID, selection: LetterShipmentFlow.ReprintSelection) -> String? {
+        guard activeFlowID == nil else { return "Bitte den laufenden Briefdruck abwarten." }
+        guard let flow = store.flow(id), flow.stage == .completed else { return "Bitte zuerst den offenen Briefablauf abschließen." }
+        if let error = store.storageError { return error }
+        if selection != .address && !postage.canReprint(flow.stamp.id, for: id) {
+            return postage.storageError ?? "Diese Briefmarke ist nicht mehr diesem abgeschlossenen Brief zugeordnet. Bitte den Markenbestand prüfen."
+        }
+        let jobs = selection == .address ? [flow.addressJob] : selection == .stamp ? [flow.stampJob] : [flow.addressJob, flow.stampJob]
+        guard jobs.allSatisfy({ FileManager.default.fileExists(atPath: $0.sourceURL.path) }) else {
+            return "Eine Druckdatei fehlt. Bitte den Brief neu vorbereiten."
+        }
+        return nil
+    }
+
+    public func reprint(_ id: UUID, selection: LetterShipmentFlow.ReprintSelection) {
+        if let reason = reprintUnavailableReason(id, selection: selection) { message = reason; return }
+        guard isReady() else { message = "Bitte den RW403B verbinden und die Materialeinstellung prüfen. Endlosrollen benötigen Firmware ab 1.1.49."; return }
+        guard store.prepareReprint(id, selection: selection) else {
+            message = store.storageError ?? "Der Nachdruck konnte nicht vorbereitet werden."
+            return
+        }
+        start(id)
+    }
+
+    private func reserveStamp(for flow: LetterShipmentFlow) -> Bool {
+        if flow.reprintSelection != nil {
+            guard postage.entries.contains(where: { $0.id == flow.stamp.id && $0.reservationID == flow.id }) else { return false }
+            if postage.canReprint(flow.stamp.id, for: flow.id) {
+                return postage.reserveForReprint(flow.stamp.id, for: flow.id)
+            }
+        }
+        return postage.reserve(flow.stamp.id, for: flow.id)
+    }
+
     public func resolveAddress(_ id: UUID, alreadyPrinted: Bool) {
-        guard activeFlowID == nil, store.flow(id)?.stage == .addressCheck else { return }
+        guard activeFlowID == nil, let flow = store.flow(id), flow.stage == .addressCheck else { return }
+        if alreadyPrinted && !flow.needsPostagePrint {
+            store.update(id, stage: .completed)
+            return
+        }
         guard store.update(id, stage: alreadyPrinted ? .addressPrinted : .ready) else { return }
         start(id)
     }
@@ -63,6 +102,11 @@ public final class LetterFlowController: ObservableObject {
             guard let self else { return }
             switch result {
             case .success:
+                if !flow.needsPostagePrint {
+                    self.store.update(flow.id, stage: .completed)
+                    self.stop()
+                    return
+                }
                 guard self.store.update(flow.id, stage: .addressPrinted) else { self.stop(); return }
                 self.printStamp(flow)
             case .failure(let error):

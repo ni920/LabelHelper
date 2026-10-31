@@ -9,11 +9,13 @@ private final class FlowHarness {
     let fixture: URL
     var ready = true
     var requested: [UUID] = []
+    var requestedFormats: [LabelFormat] = []
     var pending: [(Result<Void, Error>) -> Void] = []
     lazy var controller = LetterFlowController(store: store, postage: postage,
         isReady: { [unowned self] in ready },
         printJob: { [unowned self] job, owner, completion in
             requested.append(job.id)
+            requestedFormats.append(job.resolvedLabelFormat)
             if let ids = job.postageStampIDs {
                 precondition(postage.canPrint(ids, reservationID: owner))
                 postage.update(ids, status: .printing)
@@ -31,11 +33,11 @@ private final class FlowHarness {
         try postage.importBundle(fixture)
     }
 
-    func makeFlow(format: LabelFormat = .product100x50) throws -> LetterShipmentFlow {
+    func makeFlow(format: LabelFormat = .product100x50, stampFormat: LabelFormat? = nil) throws -> LetterShipmentFlow {
         let stamp = postage.entries.first { $0.status == .available }!.stamp
         let id = UUID()
         let address = PrintJob(sourceURL: fixture, sourceFingerprint: "address-\(id)", labelFormat: format, letterFlowID: id)
-        let mark = PrintJob(sourceURL: fixture, sourceFingerprint: "stamp-\(id)", labelFormat: format,
+        let mark = PrintJob(sourceURL: fixture, sourceFingerprint: "stamp-\(id)", labelFormat: stampFormat ?? format,
                             postageStampIDs: [stamp.id], letterFlowID: id)
         let flow = LetterShipmentFlow(id: id, recipientName: "Testempfänger", orderID: "test-order", stamp: stamp,
                                       addressJob: address, stampJob: mark)
@@ -47,10 +49,21 @@ private final class FlowHarness {
         try require(!pending.isEmpty, "Flow scheduled no pending print")
         pending.removeFirst()(result)
     }
+
+    func completedFlow() throws -> LetterShipmentFlow {
+        let flow = try makeFlow()
+        controller.start(flow.id)
+        try finish(.success(()))
+        try finish(.success(()))
+        requested = []
+        requestedFormats = []
+        return store.flow(flow.id)!
+    }
 }
 
 func runLetterFlowTests(fixture: URL, directory: URL) throws {
     try MainActor.assumeIsolated {
+        try runLetterReprintTests(fixture: fixture, directory: directory.appendingPathComponent("reprints"))
         let success = try FlowHarness(fixture: fixture, directory: directory.appendingPathComponent("success"))
         let flow = try success.makeFlow()
         success.controller.start(flow.id)
@@ -69,7 +82,12 @@ func runLetterFlowTests(fixture: URL, directory: URL) throws {
         try require(success.requested.count == 2, "Completed flow was reprinted")
 
         let continuous = try FlowHarness(fixture: fixture, directory: directory.appendingPathComponent("continuous"))
-        let continuousFlow = try continuous.makeFlow(format: .continuousLetter100x55)
+        let addressFormat = LabelFormat.continuous(heightMM: 33)
+        let stampFormat = LabelFormat.continuous(heightMM: 26)
+        let continuousFlow = try continuous.makeFlow(format: addressFormat, stampFormat: stampFormat)
+        let savedFlow = LetterFlowStore(directory: continuous.directory.appendingPathComponent("flows")).flow(continuousFlow.id)
+        try require(savedFlow?.addressJob.resolvedLabelFormat == addressFormat && savedFlow?.stampJob.resolvedLabelFormat == stampFormat,
+                    "Restoring a combined flow lost the independent address and stamp lengths")
         continuous.ready = MunbynFirmwareCapabilities.canPrint(.continuous, firmware: "1.1.48")
         continuous.controller.start(continuousFlow.id)
         try require(continuous.requested.isEmpty && continuous.postage.canPrint([continuousFlow.stamp.id]),
@@ -79,6 +97,8 @@ func runLetterFlowTests(fixture: URL, directory: URL) throws {
         try continuous.finish(.success(()))
         try require(continuous.requested == [continuousFlow.addressJob.id, continuousFlow.stampJob.id],
                     "Supported continuous flow must proceed from confirmed address to stamp")
+        try require(continuous.requestedFormats == [addressFormat, stampFormat],
+                    "Combined printing replaced the stamp's compact length with the address length")
         try continuous.finish(.success(()))
         try require(continuous.store.flow(continuousFlow.id)?.stage == .completed && !continuous.postage.canPrint([continuousFlow.stamp.id]),
                     "Continuous stamp must keep the same one-use ledger guarantees")
@@ -149,4 +169,130 @@ func runLetterFlowTests(fixture: URL, directory: URL) throws {
         try require(writeFailure.requested.isEmpty && writeFailure.store.storageError != nil, "Flow printed without saving its pre-print checkpoint")
     }
     print("Letter flow tests passed: sequencing, reservations, double-clicks, disconnects, partial failures, restart recovery and checkpoint failures")
+}
+
+@MainActor
+private func runLetterReprintTests(fixture: URL, directory: URL) throws {
+        for selection in LetterShipmentFlow.ReprintSelection.allCases {
+            let harness = try FlowHarness(fixture: fixture, directory: directory.appendingPathComponent(selection.rawValue))
+            let flow = try harness.completedFlow()
+            let originalCount = harness.postage.entries.first { $0.id == flow.stamp.id }!.printCount
+            harness.controller.reprint(flow.id, selection: selection)
+            harness.controller.reprint(flow.id, selection: selection)
+            try require(harness.requested.count == 1, "Repeated reprint clicks submitted multiple jobs")
+            try require(!harness.postage.canPrint([flow.stamp.id]), "Reprinting released postage into ordinary stock")
+            try harness.finish(.success(()))
+            if selection == .both { try harness.finish(.success(())) }
+            let expected = selection == .address ? [flow.addressJob.id] : selection == .stamp ? [flow.stampJob.id] : [flow.addressJob.id, flow.stampJob.id]
+            try require(harness.requested == expected, "Reprint selection printed the wrong labels")
+            try require(harness.store.flow(flow.id)?.stage == .completed, "Reprint failed to finish")
+            let entry = harness.postage.entries.first { $0.id == flow.stamp.id }!
+            try require(entry.status == .printed && entry.reservationID == flow.id, "Reprint lost original stamp association")
+            try require(entry.printCount == (originalCount ?? 0) + (selection == .address ? 0 : 1), "Reprint altered the wrong postage history")
+            let restored = LetterFlowStore(directory: harness.directory.appendingPathComponent("flows")).flow(flow.id)
+            try require(restored?.reprintSelection == selection && restored?.createdAt == flow.createdAt &&
+                        restored?.stamp == flow.stamp && restored?.addressJob == flow.addressJob && restored?.stampJob == flow.stampJob,
+                        "Reprint did not persist selection and original jobs")
+        }
+
+        let addressFailure = try FlowHarness(fixture: fixture, directory: directory.appendingPathComponent("address-failure"))
+        let address = try addressFailure.completedFlow()
+        addressFailure.controller.reprint(address.id, selection: .address)
+        try addressFailure.finish(.failure(SelfTestFailure.assertion("address reprint interrupted")))
+        try require(addressFailure.store.flow(address.id)?.stage == .addressCheck, "Address reprint failure skipped review")
+        addressFailure.controller.resolveAddress(address.id, alreadyPrinted: false)
+        try addressFailure.finish(.success(()))
+        try require(addressFailure.requested == [address.addressJob.id, address.addressJob.id], "Address retry printed a paid stamp")
+
+        let interrupted = try FlowHarness(fixture: fixture, directory: directory.appendingPathComponent("address-restart"))
+        let restarting = try interrupted.completedFlow()
+        interrupted.controller.reprint(restarting.id, selection: .address)
+        let restoredStore = LetterFlowStore(directory: interrupted.directory.appendingPathComponent("flows"))
+        let restoredPostage = PostageStampStore(directory: interrupted.directory.appendingPathComponent("postage"))
+        var recoveryPrints = 0
+        let restoredController = LetterFlowController(store: restoredStore, postage: restoredPostage, isReady: { true },
+                                                      printJob: { _, _, _ in recoveryPrints += 1 })
+        try require(restoredStore.flow(restarting.id)?.stage == .addressCheck, "Restart lost address reprint checkpoint")
+        restoredController.start(restarting.id)
+        try require(recoveryPrints == 0, "Restart automatically retried an ambiguous address")
+        restoredController.resolveAddress(restarting.id, alreadyPrinted: true)
+        try require(recoveryPrints == 0 && restoredStore.flow(restarting.id)?.stage == .completed,
+                    "Confirming address-only reprint incorrectly printed postage")
+
+        let bothFailure = try FlowHarness(fixture: fixture, directory: directory.appendingPathComponent("both-failure"))
+        let both = try bothFailure.completedFlow()
+        bothFailure.controller.reprint(both.id, selection: .both)
+        try bothFailure.finish(.success(()))
+        try bothFailure.finish(.failure(SelfTestFailure.assertion("stamp reprint interrupted")))
+        bothFailure.controller.start(both.id)
+        try require(bothFailure.requested.count == 2 && bothFailure.store.flow(both.id)?.stage == .stampCheck,
+                    "Ambiguous reprint must not retry automatically")
+        bothFailure.controller.resolveStamp(both.id, alreadyPrinted: false)
+        try bothFailure.finish(.success(()))
+        try require(bothFailure.requested == [both.addressJob.id, both.stampJob.id, both.stampJob.id],
+                    "Stamp recovery duplicated the already reprinted address")
+
+        let offline = try FlowHarness(fixture: fixture, directory: directory.appendingPathComponent("offline"))
+        let offlineFlow = try offline.completedFlow()
+        offline.ready = false
+        offline.controller.reprint(offlineFlow.id, selection: .both)
+        try require(offline.requested.isEmpty && offline.store.flow(offlineFlow.id)?.stage == .completed &&
+                    offline.postage.canReprint(offlineFlow.stamp.id, for: offlineFlow.id),
+                    "Offline reprint changed the completed flow or stamp")
+
+        let reassigned = try FlowHarness(fixture: fixture, directory: directory.appendingPathComponent("reassigned"))
+        let old = try reassigned.completedFlow()
+        try require(reassigned.postage.reuse([old.stamp.id]), "Cannot prepare reassigned-stamp fixture")
+        let other = UUID()
+        try require(reassigned.postage.reserve(old.stamp.id, for: other), "Cannot reserve stamp for another flow")
+        reassigned.controller.reprint(old.id, selection: .stamp)
+        try require(reassigned.requested.isEmpty && reassigned.controller.message != nil, "Reprint stole another flow's stamp")
+        reassigned.controller.reprint(old.id, selection: .address)
+        try reassigned.finish(.success(()))
+        try require(reassigned.postage.entries.first { $0.id == old.stamp.id }?.reservationID == other,
+                    "Address-only reprint modified another flow's reservation")
+
+        let missingFixture = directory.appendingPathComponent("missing-job.pdf")
+        try FileManager.default.copyItem(at: fixture, to: missingFixture)
+        let missing = try FlowHarness(fixture: missingFixture, directory: directory.appendingPathComponent("missing"))
+        let missingFlow = try missing.completedFlow()
+        try FileManager.default.removeItem(at: missingFixture)
+        missing.controller.reprint(missingFlow.id, selection: .both)
+        try require(missing.requested.isEmpty && missing.store.flow(missingFlow.id)?.stage == .completed &&
+                    missing.controller.message != nil, "Missing PDF started a reprint")
+
+        let writeFailure = try FlowHarness(fixture: fixture, directory: directory.appendingPathComponent("write-failure"))
+        let unwritable = try writeFailure.completedFlow()
+        let storeDirectory = writeFailure.directory.appendingPathComponent("flows")
+        try FileManager.default.removeItem(at: storeDirectory)
+        try Data("blocked".utf8).write(to: storeDirectory)
+        writeFailure.controller.reprint(unwritable.id, selection: .both)
+        try require(writeFailure.requested.isEmpty && writeFailure.postage.canReprint(unwritable.stamp.id, for: unwritable.id),
+                    "Reprint reserved or printed postage without a saved checkpoint")
+        let stampRestart = try FlowHarness(fixture: fixture, directory: directory.appendingPathComponent("stamp-restart"))
+        let sr = try stampRestart.completedFlow()
+        stampRestart.controller.reprint(sr.id, selection: .stamp)
+        let restoredStampStore = LetterFlowStore(directory: stampRestart.directory.appendingPathComponent("flows"))
+        let restoredStampPostage = PostageStampStore(directory: stampRestart.directory.appendingPathComponent("postage"))
+        var stampRecoveryPrints = 0
+        let stampController = LetterFlowController(store: restoredStampStore, postage: restoredStampPostage, isReady: { true },
+                                                   printJob: { _, _, _ in stampRecoveryPrints += 1 })
+        try require(restoredStampStore.flow(sr.id)?.stage == .stampCheck && restoredStampStore.flow(sr.id)?.reprintSelection == .stamp,
+                    "Old successful stamp print incorrectly completed an interrupted reprint")
+        stampController.start(sr.id)
+        try require(stampRecoveryPrints == 0, "Restart retried an ambiguous paid-stamp reprint")
+        stampController.resolveStamp(sr.id, alreadyPrinted: true)
+        try require(restoredStampStore.flow(sr.id)?.stage == .completed &&
+                    restoredStampPostage.entries.first { $0.id == sr.stamp.id }?.printCount == 2,
+                    "Confirmed reprint did not preserve print history")
+
+        let ledgerFailure = try FlowHarness(fixture: fixture, directory: directory.appendingPathComponent("ledger-failure"))
+        let lf = try ledgerFailure.completedFlow()
+        let ledgerDirectory = ledgerFailure.directory.appendingPathComponent("postage")
+        try FileManager.default.removeItem(at: ledgerDirectory)
+        try Data("blocked".utf8).write(to: ledgerDirectory)
+        ledgerFailure.controller.reprint(lf.id, selection: .both)
+        try require(ledgerFailure.requested.isEmpty && ledgerFailure.postage.storageError != nil,
+                    "Reprint started before saving its exclusive postage reservation")
+        print("Letter reprint tests passed: all selections, ownership, history, duplicate clicks, recovery, offline and persistence guards")
 }

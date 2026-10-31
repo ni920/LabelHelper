@@ -43,30 +43,39 @@ public struct PostageSheetLayout: Sendable {
     public let columns: Int
     public let sheets: [[Placement]]
     public let cellSize: CGSize
+    /// Maximum packing area; emitted pages use their individual sheetFormats.
     public let paperSize: CGSize
+    public let sheetFormats: [LabelFormat]
 
-    public init(stampSizes: [CGSize], format: LabelFormat) {
+    public init(stampSizes: [CGSize], format: LabelFormat, fitHeightToContent: Bool = false) {
         let pointsPerMM = 72.0 / 25.4
         let margin = pointsPerMM
         paperSize = CGSize(width: format.widthMM * pointsPerMM, height: format.heightMM * pointsPerMM)
         cellSize = CGSize(width: stampSizes.map(\.width).max() ?? 0, height: stampSizes.map(\.height).max() ?? 0)
         guard cellSize.width.isFinite, cellSize.height.isFinite, cellSize.width > 0, cellSize.height > 0 else {
-            columns = 0; capacity = 0; sheets = []; return
+            columns = 0; capacity = 0; sheets = []; sheetFormats = []; return
         }
         columns = max(0, Int(floor((paperSize.width - 2 * margin) / cellSize.width)))
         let rows = max(0, Int(floor((paperSize.height - 2 * margin) / cellSize.height)))
         capacity = columns * rows
-        guard capacity > 0 else { sheets = []; return }
+        guard capacity > 0 else { sheets = []; sheetFormats = []; return }
         let originX = (paperSize.width - Double(columns) * cellSize.width) / 2
         var result: [[Placement]] = []
+        var formats: [LabelFormat] = []
         for start in stride(from: 0, to: stampSizes.count, by: capacity) {
+            let count = min(capacity, stampSizes.count - start)
+            let occupiedRows = (count + columns - 1) / columns
+            let sheetFormat = fitHeightToContent
+                ? LabelFormat.continuous(widthMM: format.widthMM, heightMM: Double(occupiedRows) * cellSize.height / pointsPerMM + 2)
+                : format
+            formats.append(sheetFormat)
             var sheet: [Placement] = []
             for index in start..<min(start + capacity, stampSizes.count) {
                 let slot = index - start
                 let size = stampSizes[index]
                 let rect = CGRect(
                     x: originX + Double(slot % columns) * cellSize.width + (cellSize.width - size.width) / 2,
-                    y: paperSize.height - margin - Double(slot / columns + 1) * cellSize.height + (cellSize.height - size.height) / 2,
+                    y: sheetFormat.heightMM * pointsPerMM - margin - Double(slot / columns + 1) * cellSize.height + (cellSize.height - size.height) / 2,
                     width: size.width, height: size.height
                 )
                 sheet.append(Placement(stampIndex: index, rect: rect))
@@ -74,5 +83,6 @@ public struct PostageSheetLayout: Sendable {
             result.append(sheet)
         }
         sheets = result
+        sheetFormats = formats
     }
 }

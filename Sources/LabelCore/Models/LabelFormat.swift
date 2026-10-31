@@ -59,6 +59,17 @@ public struct LabelFormat: Codable, Equatable, Hashable, Identifiable, Sendable 
 
     public static let continuousRollWidthMM = 100.0
 
+    public var usesAutomaticHeight: Bool { id == "continuous-content" }
+
+    public static func continuous(widthMM: Double = continuousRollWidthMM, heightMM: Double) -> LabelFormat {
+        LabelFormat(
+            id: "continuous-content",
+            name: "Endlosrolle · Automatische Länge",
+            widthMM: widthMM,
+            heightMM: ceil(max(15, heightMM) * dotsPerMillimeter) / dotsPerMillimeter
+        )
+    }
+
     public static func normalizedLetterFormatID(_ storedID: String?) -> String {
         guard let storedID else { return address89x36.id }
         if storedID == "custom" || letterPresets.contains(where: { $0.id == storedID }) {

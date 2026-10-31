@@ -23,7 +23,7 @@ struct LabelFormatControls: View {
 
             if appStore.labelStockMode == .continuous100 {
                 VStack(alignment: .leading, spacing: 4) {
-                    Label("Brief: 100 × 55 mm + 2 mm Schnittzugabe", systemImage: "envelope")
+                    Label("Brief: Länge automatisch + 2 mm Schnittzugabe", systemImage: "envelope")
                     Label("Paket: 100 × 150 mm + 2 mm Schnittzugabe", systemImage: "shippingbox")
                     if bluetooth.supportsContinuousStock {
                         Label("Bluetooth mit Firmware \(bluetooth.firmwareVersion ?? "1.1.49")", systemImage: "wave.3.right")
@@ -32,7 +32,7 @@ struct LabelFormatControls: View {
                         Label("Bluetooth benötigt Firmware ab 1.1.49 und eine Druckerverbindung. Alternativ über USB mit Medientyp Endlos/Continuous drucken.", systemImage: "info.circle")
                             .font(.callout).fixedSize(horizontal: false, vertical: true)
                     }
-                    Text("Unter jedem Endlosetikett wird eine gestrichelte Schnittlinie auf 2 mm zusätzlichem Rand gedruckt. Beide Größen verwenden dieselbe Rolle.")
+                    Text("Adresse und Briefmarke erhalten jeweils nur die benötigte Länge. Unter jedem Etikett bleiben 2 mm für die Schnittlinie. Die Rollenbreite bleibt 100 mm.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -91,12 +91,17 @@ struct PostageFormatControls: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             LabelMaterialPicker(appStore: appStore)
-            Picker("Etikettenformat", selection: Binding(
-                get: { appStore.postageFormat(for: formatID).id },
-                set: { formatID = $0 }
-            )) {
-                ForEach(appStore.postageFormats) { Text($0.name).tag($0.id) }
-            }.frame(maxWidth: 340)
+            if appStore.labelStockMode == .continuous100 {
+                Text("100 mm breit · Länge automatisch")
+                    .font(.callout).foregroundStyle(.secondary)
+            } else {
+                Picker("Etikettenformat", selection: Binding(
+                    get: { appStore.postageFormat(for: formatID).id },
+                    set: { formatID = $0 }
+                )) {
+                    ForEach(appStore.postageFormats) { Text($0.name).tag($0.id) }
+                }.frame(maxWidth: 340)
+            }
         }
     }
 }

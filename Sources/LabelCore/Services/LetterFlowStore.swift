@@ -39,6 +39,17 @@ public final class LetterFlowStore: ObservableObject {
     }
 
     @discardableResult
+    public func prepareReprint(_ id: UUID, selection: LetterShipmentFlow.ReprintSelection) -> Bool {
+        guard storageError == nil, let index = flows.firstIndex(where: { $0.id == id && $0.stage == .completed }) else { return false }
+        var updated = flows
+        updated[index].reprintSelection = selection
+        updated[index].stage = selection == .stamp ? .addressPrinted : .ready
+        updated[index].errorMessage = nil
+        do { try save(updated); flows = updated; return true }
+        catch { storageError = "Der Nachdruck konnte nicht gespeichert werden: \(error.localizedDescription)"; return false }
+    }
+
+    @discardableResult
     public func update(_ id: UUID, stage: LetterShipmentFlow.Stage, error: String? = nil) -> Bool {
         guard storageError == nil, let index = flows.firstIndex(where: { $0.id == id }) else { return false }
         var updated = flows

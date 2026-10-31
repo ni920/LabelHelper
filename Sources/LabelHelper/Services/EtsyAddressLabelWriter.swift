@@ -16,6 +16,17 @@ enum EtsyAddressLabelWriterError: LocalizedError {
 }
 
 enum EtsyAddressLabelWriter {
+    private static let compactMargin: CGFloat = 9
+    private static let compactSenderFontSize: CGFloat = 9
+    private static let compactSenderGap: CGFloat = 6
+
+    static func continuousFormat(recipient: RecipientAddress, sender: SenderAddress) -> LabelFormat {
+        let width = LabelFormat.continuousRollWidthMM * 72 / 25.4
+        let recipient = compactRecipient(recipientLines(recipient), width: width - 2 * compactMargin)
+        let senderHeight = senderLine(sender).isEmpty ? 0 : compactSenderFontSize * 1.65 + compactSenderGap
+        return .continuous(heightMM: (2 * compactMargin + senderHeight + recipient.height) * 25.4 / 72)
+    }
+
     static func write(
         order: EtsyOrder,
         sender: SenderAddress,
@@ -115,9 +126,10 @@ enum EtsyAddressLabelWriter {
         context.fill(mediaBox)
         context.setFillColor(NSColor.black.cgColor)
 
-        let margin = max(9, min(mediaBox.width, mediaBox.height) * 0.055)
-        let senderFontSize = max(5.5, min(9, mediaBox.height * 0.07))
-        let senderHeight = senderFontSize * 1.65
+        let compact = format.usesAutomaticHeight
+        let margin = compact ? compactMargin : max(9, min(mediaBox.width, mediaBox.height) * 0.055)
+        let senderFontSize = compact ? compactSenderFontSize : max(5.5, min(9, mediaBox.height * 0.07))
+        let senderHeight = compact && senderLine(sender).isEmpty ? 0 : senderFontSize * 1.65
         drawFittedLine(
             senderLine(sender),
             in: CGRect(
@@ -131,16 +143,37 @@ enum EtsyAddressLabelWriter {
             context: context
         )
 
-        let separatorY = mediaBox.height - margin - senderHeight - 4
+        let separatorY = mediaBox.height - margin - senderHeight - (compact ? 0 : 4)
 
         let footerHeight = footer == nil ? 0 : max(8, mediaBox.height * 0.08)
+        let recipientGap = compact ? (senderHeight == 0 ? 0 : compactSenderGap) : 6
         let recipientRect = CGRect(
             x: margin,
             y: margin + footerHeight,
             width: mediaBox.width - 2 * margin,
-            height: max(20, separatorY - margin - footerHeight - 6)
+            height: max(20, separatorY - margin - footerHeight - recipientGap)
         )
-        drawRecipient(recipientLines(recipient), in: recipientRect, context: context)
+        if compact {
+            let content = compactRecipient(recipientLines(recipient), width: recipientRect.width)
+            guard content.height <= recipientRect.height else {
+                context.endPDFPage()
+                context.closePDF()
+                throw EtsyAddressLabelWriterError.cannotCreateDocument
+            }
+            let rect = CGRect(x: recipientRect.minX, y: recipientRect.maxY - content.height,
+                              width: recipientRect.width, height: content.height)
+            let framesetter = CTFramesetterCreateWithAttributedString(content.text)
+            let frame = CTFramesetterCreateFrame(framesetter, CFRange(location: 0, length: 0),
+                                                CGPath(rect: rect, transform: nil), nil)
+            guard CTFrameGetVisibleStringRange(frame).length == CFAttributedStringGetLength(content.text) else {
+                context.endPDFPage()
+                context.closePDF()
+                throw EtsyAddressLabelWriterError.cannotCreateDocument
+            }
+            CTFrameDraw(frame, context)
+        } else {
+            drawRecipient(recipientLines(recipient), in: recipientRect, context: context)
+        }
 
         if let footer {
             drawLine(
@@ -159,6 +192,20 @@ enum EtsyAddressLabelWriter {
             throw EtsyAddressLabelWriterError.cannotCreateDocument
         }
         return data as Data
+    }
+
+    private static func compactRecipient(_ lines: [String], width: CGFloat) -> (text: CFAttributedString, height: CGFloat) {
+        // Fixed readable type, independent of roll length. Long addresses wrap
+        // and grow the label instead of being clipped to a short paper size.
+        var fontSize: CGFloat = 13
+        while fontSize > 8.5 && widestLine(lines, fontSize: fontSize) > width { fontSize -= 0.5 }
+        let text = recipientText(lines, fontSize: fontSize)
+        let framesetter = CTFramesetterCreateWithAttributedString(text)
+        let size = CTFramesetterSuggestFrameSizeWithConstraints(
+            framesetter, CFRange(location: 0, length: 0), nil,
+            CGSize(width: width, height: .greatestFiniteMagnitude), nil
+        )
+        return (text, ceil(size.height + fontSize * 0.2))
     }
 
     private static func drawRecipient(_ lines: [String], in rect: CGRect, context: CGContext) {

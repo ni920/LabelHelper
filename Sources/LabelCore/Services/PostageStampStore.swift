@@ -98,6 +98,20 @@ public final class PostageStampStore: ObservableObject {
     }
 
     @discardableResult
+    public func reserveForReprint(_ id: String, for owner: UUID) -> Bool {
+        guard storageError == nil,
+              let index = entries.firstIndex(where: { $0.id == id && $0.status == .printed && $0.reservationID == owner }) else { return false }
+        var updated = entries
+        updated[index].status = .reserved
+        updated[index].releasedAt = Date()
+        return commit(updated)
+    }
+
+    public func canReprint(_ id: String, for owner: UUID) -> Bool {
+        storageError == nil && entries.contains { $0.id == id && $0.status == .printed && $0.reservationID == owner }
+    }
+
+    @discardableResult
     public func update(_ ids: [String], status: Status) -> Bool {
         let selected = Set(ids)
         var updated = entries

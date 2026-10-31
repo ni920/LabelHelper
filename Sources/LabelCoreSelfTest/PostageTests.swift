@@ -58,13 +58,14 @@ private func inkWidth(on page: CGPDFPage, in region: CGRect) throws -> Int {
     return maxX >= minX ? maxX - minX + 1 : 0
 }
 
-private func checkOriginalInkSize(stamps: [PostageStamp], outputs: [(URL, [String])], format: LabelFormat) throws {
+private func checkOriginalInkSize(stamps: [PostageStamp], outputs: [(URL, [String], LabelFormat)], format: LabelFormat,
+                                  fitHeightToContent: Bool = false) throws {
     let first = stamps[0]
     let sourcePage = PDFDocument(url: first.sourceURL)!.page(at: first.pageNumber - 1)!
     let text = sourcePage.string! as NSString
     let header = sourcePage.selection(for: text.range(of: "IM 01.01.26 1,80"))!.bounds(for: sourcePage)
     let relative = header.insetBy(dx: -2, dy: -1).offsetBy(dx: -first.sourceRect.minX, dy: -first.sourceRect.minY)
-    let layout = PostageSheetLayout(stampSizes: stamps.map(\.sourceRect.size), format: format)
+    let layout = PostageSheetLayout(stampSizes: stamps.map(\.sourceRect.size), format: format, fitHeightToContent: fitHeightToContent)
     for (index, output) in outputs.enumerated() {
         let outputPage = CGPDFDocument(output.0 as CFURL)!.page(at: 1)!
         for placement in layout.sheets[index] {
@@ -138,6 +139,44 @@ func runPostageTests() throws {
                     "Continuous sheet must use the selected 100 × 55 mm cut length")
     }
     try checkOriginalInkSize(stamps: stamps, outputs: continuousOutputs, format: .continuousLetter100x55)
+    let rollStamps = try PostagePDFService.readStamps(from: postageFixture(in: root, count: 25))
+    for count in [1, 2, 3, 13, 25] {
+        let selected = Array(rollStamps.prefix(count))
+        let layout = PostageSheetLayout(stampSizes: selected.map(\.sourceRect.size), format: .shipping100x150, fitHeightToContent: true)
+        let sheets = try PostagePDFService.writeSheets(stamps: selected, format: .shipping100x150, cutGuides: true,
+                                                      directory: root, fitHeightToContent: true)
+        try require(sheets.flatMap(\.stampIDs) == selected.map(\.id), "Automatic sheets lost stamp order or identity")
+        for (index, sheet) in sheets.enumerated() {
+            let page = PDFDocument(url: sheet.url)!.page(at: 0)!
+            let bounds = page.bounds(for: .mediaBox)
+            let rows = (layout.sheets[index].count + layout.columns - 1) / layout.columns
+            let neededMM = Double(rows) * layout.cellSize.height * 25.4 / 72 + 2
+            try require(sheet.format == layout.sheetFormats[index], "Preview and PDF use different lengths")
+            try require(sheet.format.heightMM >= neededMM && sheet.format.heightMM < neededMM + 0.125,
+                        "Continuous sheet must keep 1 mm margins, round up to a print dot, and remove all empty rows")
+            try require(abs(bounds.height - sheet.format.heightMM * 72 / 25.4) < 0.01,
+                        "PDF height differs from queued print format")
+            try require(sheet.format.widthMM == 100 && sheet.format.heightMM < 150, "Roll output retained the fixed shipping length")
+            if layout.sheets[index].count <= 2 {
+                try require(sheet.format.heightMM < 30, "A single row of postage still wastes more than 30 mm")
+            }
+            for placement in layout.sheets[index] {
+                try require(placement.rect.size == selected[placement.stampIndex].sourceRect.size && bounds.contains(placement.rect),
+                            "Automatic height cropped or resized a complete stamp")
+                try require(placement.rect.minY >= 72 / 25.4 - 0.01, "Bottom safety margin was removed")
+            }
+        }
+        try checkOriginalInkSize(stamps: selected, outputs: sheets, format: .shipping100x150, fitHeightToContent: true)
+    }
+    let mixedSizes = [CGSize(width: 110, height: 60), CGSize(width: 100, height: 70), CGSize(width: 110, height: 50)]
+    let mixed = PostageSheetLayout(stampSizes: mixedSizes, format: .shipping100x150, fitHeightToContent: true)
+    for placement in mixed.sheets[0] {
+        let bounds = CGRect(x: 0, y: 0, width: 100 * 72 / 25.4, height: mixed.sheetFormats[0].heightMM * 72 / 25.4)
+        try require(bounds.contains(placement.rect) && placement.rect.size == mixedSizes[placement.stampIndex],
+                    "Mixed-size stamps must fit unchanged on the shortened roll")
+    }
+    let emptyLayout = PostageSheetLayout(stampSizes: [], format: .shipping100x150, fitHeightToContent: true)
+    try require(emptyLayout.sheets.isEmpty && emptyLayout.sheetFormats.isEmpty, "Empty selection generated roll output")
     do {
         _ = try PostagePDFService.readStamps(from: postageFixture(in: root, count: 0))
         throw SelfTestFailure.assertion("Blank PDFs should not be accepted as postage bundles")

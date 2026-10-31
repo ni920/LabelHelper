@@ -45,7 +45,10 @@ struct PostageBundleView: View {
     private var selected: [PostageStamp] {
         selectedEntries.map(\.stamp)
     }
-    private var layout: PostageSheetLayout { PostageSheetLayout(stampSizes: selected.map { $0.sourceRect.size }, format: format) }
+    private var layout: PostageSheetLayout {
+        PostageSheetLayout(stampSizes: selected.map { $0.sourceRect.size }, format: format,
+                           fitHeightToContent: appStore.labelStockMode == .continuous100)
+    }
     private var busy: Bool { appStore.printInProgress || appStore.printingPostageBatch }
     private var visibleEntries: [PostageStampStore.Entry] { store.entries.filter(filter.includes) }
     private var availableEntries: [PostageStampStore.Entry] { store.entries.filter { $0.status == .available } }

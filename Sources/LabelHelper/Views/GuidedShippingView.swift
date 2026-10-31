@@ -16,7 +16,10 @@ struct GuidedShippingView: View {
     private var letterStamp: PostageStamp? { available.first { $0.id == appStore.selectedLetterPostageID } }
     private var parcel: PrintJob? { jobs.jobs.first { $0.id == journey.parcelJobID } }
     private var busy: Bool { appStore.printInProgress || appStore.printingPostageBatch || controller.activeFlowID != nil }
-    private var layout: PostageSheetLayout { PostageSheetLayout(stampSizes: selected.map { $0.sourceRect.size }, format: postageFormat) }
+    private var layout: PostageSheetLayout {
+        PostageSheetLayout(stampSizes: selected.map { $0.sourceRect.size }, format: postageFormat,
+                           fitHeightToContent: appStore.labelStockMode == .continuous100)
+    }
 
     var body: some View {
         ScrollView {
@@ -134,7 +137,9 @@ struct GuidedShippingView: View {
             } else {
                 GroupBox {
                   VStack(alignment: .leading, spacing: 18) {
-                    Text(appStore.letterWithPostage ? "Adresse und Briefmarke verwenden dasselbe Etikettenformat." : "Wähle das Format der eingelegten Etiketten. Deine Auswahl wird gespeichert.")
+                    Text(appStore.labelStockMode == .continuous100
+                         ? "Die Länge passt sich dem Inhalt an. Adresse und Briefmarke verwenden dieselbe Rolle, aber nur so viel Material wie nötig."
+                         : appStore.letterWithPostage ? "Adresse und Briefmarke verwenden dasselbe Etikettenformat." : "Wähle das Format der eingelegten Etiketten. Deine Auswahl wird gespeichert.")
                     LabelFormatControls(appStore: appStore, showHeading: false)
                   }.padding(12)
                 }
@@ -216,7 +221,9 @@ struct GuidedShippingView: View {
         case .postage:
             VStack(alignment: .leading, spacing: 16) {
                 Text("\(selected.count) Briefmarken auf \(layout.sheets.count) Etikett\(layout.sheets.count == 1 ? "" : "en")").font(.headline)
-                Text("\(appStore.printedLabelFormat(postageFormat).sizeDescription) · Originalgröße 100 %")
+                Text(appStore.labelStockMode == .continuous100
+                     ? "100 mm breit · Länge je Etikett automatisch · Originalgröße 100 %"
+                     : "\(appStore.printedLabelFormat(postageFormat).sizeDescription) · Originalgröße 100 %")
                 Text(cutGuides ? "Mit Schnittlinien zum Ausschneiden." : "Ohne Schnittlinien.")
                 Text("In der Vorschau kannst du jedes Etikett und die zugehörigen Sendungsnummern prüfen.")
             }
@@ -232,7 +239,7 @@ struct GuidedShippingView: View {
             if journey.step != .recipient && appStore.letterWithPostage {
                 if letterStamp == nil { return "Bitte eine verfügbare Briefmarke mit passendem Portowert auswählen." }
                 if journey.step != .franking {
-                    if let stamp = letterStamp, PostageSheetLayout(stampSizes: [stamp.sourceRect.size], format: appStore.selectedLetterLabelFormat).capacity == 0 {
+                    if let stamp = letterStamp, PostageSheetLayout(stampSizes: [stamp.sourceRect.size], format: appStore.selectedLetterPostageFormat).capacity == 0 {
                         return "Die Briefmarke passt nicht in Originalgröße. Bitte ein größeres Etikettenformat wählen."
                     }
                 }

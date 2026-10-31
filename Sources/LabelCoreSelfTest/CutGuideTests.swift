@@ -2,7 +2,7 @@ import Foundation
 import LabelCore
 
 func runCutGuideTests() throws {
-    for format in [LabelFormat.continuousLetter100x55, .shipping100x150] {
+    for format in [LabelFormat.continuousLetter100x55, .shipping100x150, .continuous(heightMM: 26), .continuous(heightMM: 32.875)] {
         // Ink touches every source edge; a cut guide must never overwrite it.
         let stride = (format.widthDots + 7) / 8
         let original = Data((0..<(stride * format.heightDots)).map { UInt8(truncatingIfNeeded: $0 * 37) })

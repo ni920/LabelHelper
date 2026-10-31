@@ -170,7 +170,7 @@ final class AppStore: ObservableObject {
 
     var postageFormats: [LabelFormat] {
         if labelStockMode == .continuous100 {
-            return [.shipping100x150, .continuousLetter100x55, .product100x50]
+            return [.shipping100x150]
         }
         return [.shipping100x150, .product100x50, .address89x36, .address70x36, .square50]
     }
@@ -193,12 +193,16 @@ final class AppStore: ObservableObject {
 
     var selectedLetterLabelFormat: LabelFormat {
         if labelStockMode == .continuous100 {
-            return .continuousLetter100x55
+            return EtsyAddressLabelWriter.continuousFormat(recipient: recipientAddress, sender: senderAddress)
         }
         if letterFormatID == "custom" {
             return .custom(widthMM: customWidthMM, heightMM: customHeightMM)
         }
         return LabelFormat.letterPresets.first(where: { $0.id == letterFormatID }) ?? .address89x36
+    }
+
+    var selectedLetterPostageFormat: LabelFormat {
+        labelStockMode == .continuous100 ? .shipping100x150 : selectedLetterLabelFormat
     }
 
     var senderAddress: SenderAddress {
@@ -235,7 +239,9 @@ final class AppStore: ObservableObject {
                 continue
             }
             do {
-                let job = try jobs.enqueue(url: url, labelFormat: selectedLabelFormat)
+                // Imported artwork must not inherit a height measured from the address editor.
+                let importFormat = selectedLabelFormat.usesAutomaticHeight ? LabelFormat.continuousLetter100x55 : selectedLabelFormat
+                let job = try jobs.enqueue(url: url, labelFormat: importFormat)
                 selectedJobID = job.id
                 lastImportedJob = job
                 lastMessage = job.status == .printed
@@ -420,11 +426,12 @@ final class AppStore: ObservableObject {
         let stamps = postage.entries.filter { selectedPostageIDs.contains($0.id) && $0.status == .available }.map(\.stamp)
         guard !stamps.isEmpty else { lastMessage = "Bitte verfügbare Briefmarken auswählen."; return }
         do {
-            let sheets = try PostagePDFService.writeSheets(stamps: stamps, format: format, cutGuides: cutGuides, directory: postage.directory)
+            let sheets = try PostagePDFService.writeSheets(stamps: stamps, format: format, cutGuides: cutGuides,
+                                                          directory: postage.directory, fitHeightToContent: labelStockMode == .continuous100)
             let queued = try sheets.enumerated().map { index, sheet in
-                try jobs.enqueue(url: sheet.0, labelFormat: format,
-                                 displayName: "Briefmarken · \(sheet.1.count) Marken · Etikett \(index + 1)/\(sheets.count)",
-                                 postageStampIDs: sheet.1)
+                try jobs.enqueue(url: sheet.url, labelFormat: sheet.format,
+                                 displayName: "Briefmarken · \(sheet.stampIDs.count) Marken · Etikett \(index + 1)/\(sheets.count)",
+                                 postageStampIDs: sheet.stampIDs)
             }
             postagePreview = PostagePrintBatch(jobs: queued)
         } catch { lastMessage = error.localizedDescription }
@@ -601,18 +608,20 @@ final class AppStore: ObservableObject {
             return
         }
         let format = selectedLetterLabelFormat
-        guard PostageSheetLayout(stampSizes: [entry.stamp.sourceRect.size], format: format).capacity > 0 else {
+        let stampFormat = selectedLetterPostageFormat
+        guard PostageSheetLayout(stampSizes: [entry.stamp.sourceRect.size], format: stampFormat).capacity > 0 else {
             lastMessage = "Die Briefmarke passt nicht in Originalgröße. Bitte ein größeres Etikettenformat wählen."
             return
         }
         do {
             let id = UUID()
             let addressURL = try EtsyAddressLabelWriter.write(recipient: recipientAddress, sender: senderAddress, format: format)
-            let sheet = try PostagePDFService.writeSheets(stamps: [entry.stamp], format: format, cutGuides: false, directory: postage.directory)
-            guard let stampPDF = sheet.first?.0 else { throw PostagePDFError.cannotWrite }
+            let sheets = try PostagePDFService.writeSheets(stamps: [entry.stamp], format: stampFormat, cutGuides: false,
+                                                          directory: postage.directory, fitHeightToContent: labelStockMode == .continuous100)
+            guard let sheet = sheets.first else { throw PostagePDFError.cannotWrite }
             let addressJob = try jobs.enqueue(url: addressURL, labelFormat: format, displayName: "Briefadresse · \(recipientAddress.name)",
                                               sourceFingerprint: "letter-address:\(id)", letterFlowID: id)
-            let stampJob = try jobs.enqueue(url: stampPDF, labelFormat: format, displayName: "Briefmarke · \(recipientAddress.name)",
+            let stampJob = try jobs.enqueue(url: sheet.url, labelFormat: sheet.format, displayName: "Briefmarke · \(recipientAddress.name)",
                                             sourceFingerprint: "letter-stamp:\(id)", postageStampIDs: [entry.id], letterFlowID: id)
             let flow = LetterShipmentFlow(id: id, recipientName: recipientAddress.name, orderID: activeBrowserOrder?.orderID ?? activeCSVOrderID,
                                           stamp: entry.stamp, addressJob: addressJob, stampJob: stampJob)

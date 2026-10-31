@@ -44,6 +44,9 @@ jobs:
           codesign --force --sign - "$SELF_TEST_BINARY"
           "$SELF_TEST_BINARY"
 
+      - name: Test rendered print layouts
+        run: bash script/test_print_layout.sh
+
       - name: Build Universal 2 app
         run: ./script/build_and_run.sh build
 

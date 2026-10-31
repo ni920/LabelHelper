@@ -55,14 +55,16 @@ public enum PostagePDFService {
         }
     }
 
-    public static func writeSheets(stamps: [PostageStamp], format: LabelFormat, cutGuides: Bool, directory: URL) throws -> [(URL, [String])] {
-        let layout = PostageSheetLayout(stampSizes: stamps.map { $0.sourceRect.size }, format: format)
+    public static func writeSheets(stamps: [PostageStamp], format: LabelFormat, cutGuides: Bool, directory: URL,
+                                   fitHeightToContent: Bool = false) throws -> [(url: URL, stampIDs: [String], format: LabelFormat)] {
+        let layout = PostageSheetLayout(stampSizes: stamps.map { $0.sourceRect.size }, format: format, fitHeightToContent: fitHeightToContent)
         guard layout.capacity > 0, !layout.sheets.isEmpty else { throw PostagePDFError.formatTooSmall }
         var documents: [URL: CGPDFDocument] = [:]
-        var output: [(URL, [String])] = []
-        for placements in layout.sheets {
+        var output: [(URL, [String], LabelFormat)] = []
+        for (index, placements) in layout.sheets.enumerated() {
             let target = directory.appendingPathComponent("briefmarken-\(UUID().uuidString).pdf")
-            var mediaBox = CGRect(origin: .zero, size: layout.paperSize)
+            let sheetFormat = layout.sheetFormats[index]
+            var mediaBox = CGRect(x: 0, y: 0, width: sheetFormat.widthMM * 72 / 25.4, height: sheetFormat.heightMM * 72 / 25.4)
             guard let context = CGContext(target as CFURL, mediaBox: &mediaBox, nil) else { throw PostagePDFError.cannotWrite }
             context.beginPDFPage(nil)
             for placement in placements {
@@ -82,8 +84,8 @@ public enum PostagePDFService {
                 context.setStrokeColor(gray: 0, alpha: 1)
                 context.setLineWidth(0.35)
                 context.setLineDash(phase: 0, lengths: [2, 3])
-                let left = (layout.paperSize.width - Double(layout.columns) * layout.cellSize.width) / 2
-                let top = layout.paperSize.height - 72.0 / 25.4
+                let left = (mediaBox.width - Double(layout.columns) * layout.cellSize.width) / 2
+                let top = mediaBox.height - 72.0 / 25.4
                 let rows = Int(ceil(Double(placements.count) / Double(layout.columns)))
                 if layout.columns > 1 {
                     for column in 1..<layout.columns {
@@ -100,7 +102,7 @@ public enum PostagePDFService {
                 context.strokePath()
             }
             context.endPDFPage(); context.closePDF()
-            output.append((target, placements.map { stamps[$0.stampIndex].id }))
+            output.append((target, placements.map { stamps[$0.stampIndex].id }, sheetFormat))
         }
         return output
     }
