@@ -103,9 +103,10 @@ final class AppStore: ObservableObject {
     @Published private(set) var browserImportSequence = 0
 
     let bluetooth = BluetoothPrinterService()
-    let jobs = PrintJobStore()
-    let postage = PostageStampStore()
-    let letterFlows = LetterFlowStore()
+    let jobs: PrintJobStore
+    let postage: PostageStampStore
+    let letterFlows: LetterFlowStore
+    let applicationDataLocation: ApplicationDataLocation
     lazy var letterFlowController = LetterFlowController(
         store: letterFlows, postage: postage,
         isReady: { [weak self] in
@@ -134,6 +135,11 @@ final class AppStore: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        applicationDataLocation = ApplicationDataManager.prepareDefaultLocation()
+        let root = applicationDataLocation.rootURL
+        jobs = PrintJobStore(directory: root)
+        postage = PostageStampStore(directory: root.appendingPathComponent("Briefmarken", isDirectory: true))
+        letterFlows = LetterFlowStore(directory: root.appendingPathComponent("Briefversand", isDirectory: true))
         guidedMode = defaults.object(forKey: "guidedMode") as? Bool ?? true
         letterWithPostage = defaults.bool(forKey: "letterWithPostage")
         selectedLetterPostageID = defaults.string(forKey: "selectedLetterPostageID") ?? ""
@@ -154,6 +160,13 @@ final class AppStore: ObservableObject {
         senderPostalCode = defaults.string(forKey: Keys.senderPostalCode) ?? ""
         senderCity = defaults.string(forKey: Keys.senderCity) ?? ""
         senderCountry = defaults.string(forKey: Keys.senderCountry) ?? "Deutschland"
+        lastMessage = applicationDataLocation.warning ?? (applicationDataLocation.migratedLegacyData
+            ? "Die lokalen App-Daten wurden sicher in den neuen Label-Helper-Ordner verschoben."
+            : nil)
+    }
+
+    var canManageApplicationData: Bool {
+        !printInProgress && !printingPostageBatch && letterFlowController.activeFlowID == nil
     }
 
     var selectedLabelFormat: LabelFormat {

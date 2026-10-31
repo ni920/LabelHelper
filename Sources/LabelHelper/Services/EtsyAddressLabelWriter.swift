@@ -67,9 +67,7 @@ enum EtsyAddressLabelWriter {
         footer: String?,
         fileManager: FileManager
     ) throws -> URL {
-        let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let directory = base
-            .appendingPathComponent("MunbynLabeler", isDirectory: true)
+        let directory = ApplicationDataManager.prepareDefaultLocation(fileManager: fileManager).rootURL
             .appendingPathComponent("Address Labels", isDirectory: true)
         do {
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)

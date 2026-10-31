@@ -253,6 +253,7 @@ do {
     try runGuidedShippingTests()
     try runBrowserExtensionSetupTests()
     try runPostageTests()
+    try runApplicationDataTests()
     print("LabelCoreSelfTest: all checks passed")
 } catch {
     fputs("LabelCoreSelfTest failed: \(error)\n", stderr)

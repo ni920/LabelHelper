@@ -4,12 +4,10 @@ import LabelCore
 @MainActor
 final class PrintJobStore: ObservableObject {
     @Published private(set) var jobs: [PrintJob] = []
-
     private let persistenceURL: URL
 
-    init(fileManager: FileManager = .default) {
-        let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let directory = base.appendingPathComponent("MunbynLabeler", isDirectory: true)
+    init(directory: URL? = nil, fileManager: FileManager = .default) {
+        let directory = directory ?? ApplicationDataManager.prepareDefaultLocation(fileManager: fileManager).rootURL
         try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         persistenceURL = directory.appendingPathComponent("print-jobs.json")
         load()

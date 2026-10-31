@@ -24,9 +24,8 @@ public enum BrowserExtensionFiles {
     ]
 
     public static func defaultDirectory() throws -> URL {
-        try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
-                                    appropriateFor: nil, create: true)
-            .appendingPathComponent("MunbynLabeler/BrowserExtension", isDirectory: true)
+        ApplicationDataManager.prepareDefaultLocation().rootURL
+            .appendingPathComponent("BrowserExtension", isDirectory: true)
     }
 
     /// Keeps the unpacked extension at a stable path, independent of app updates.

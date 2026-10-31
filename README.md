@@ -73,10 +73,17 @@ Falls ein manuelles Update nötig ist, die neue App einfach über die vorhandene
 Version im Programme-Ordner kopieren. Einstellungen, Briefmarkenbestand und
 Druckhistorie bleiben erhalten.
 
+Unter **Label Helper → Einstellungen → Allgemein → Daten** lässt sich der
+vollständige lokale Datenbestand sichern und wiederherstellen. Vor jeder
+Wiederherstellung legt Label Helper automatisch eine zusätzliche
+Sicherheitskopie des aktuellen Stands an und beendet sich anschließend.
+
 Zum Deinstallieren **Label Helper.app** in den Papierkorb verschieben. Lokale
 App-Daten bleiben dabei unter
-`~/Library/Application Support/MunbynLabeler/` gespeichert und können bei
-Bedarf separat gelöscht werden.
+`~/Library/Application Support/LabelHelper/` gespeichert und können bei Bedarf
+separat gelöscht werden. Der alte Pfad
+`~/Library/Application Support/MunbynLabeler/` bleibt als Kompatibilitätslink
+erhalten.
 
 ## Erster Druck
 
@@ -231,17 +238,26 @@ ein GitHub Release mit ZIP-Archiven, Prüfsummen und signiertem Update-Feed.
 <details>
 <summary><strong>Kompatibilitätskennungen für Mitwirkende</strong></summary>
 
-Für bestehende Installationen bleiben einige historische Kennungen absichtlich
-unverändert:
+Bestehende lokale Daten werden beim ersten Start sicher aus
+`~/Library/Application Support/MunbynLabeler/` nach
+`~/Library/Application Support/LabelHelper/` verschoben. Ein symbolischer Link
+am alten Pfad hält ältere Installationen und bereits geladene
+Browser-Erweiterungen kompatibel. Wenn beide Ordner unterschiedliche Daten
+enthalten, führt die App nichts automatisch zusammen und zeigt stattdessen
+einen Hinweis.
+
+Einige weitere historische Kennungen bleiben für bestehende Installationen
+absichtlich unverändert:
 
 - Bundle-ID: `de.nicosaia.MunbynLabeler`
-- Datenspeicher: `~/Library/Application Support/MunbynLabeler/`
+- Datenspeicher: `~/Library/Application Support/LabelHelper/`
+- Alter Datenpfad: `~/Library/Application Support/MunbynLabeler/` (Kompatibilitätslink)
 - App-Link: `munbyn-labeler://etsy-order`
 - Safari-Erweiterung: `de.nicosaia.MunbynLabeler.EtsyExtension`
 
-Diese Werte sollten nur zusammen mit einer vollständigen Migration geändert
-werden. Repository, Swift-Package, Target und ausführbare Datei heißen
-**LabelHelper**; das App-Paket heißt **Label Helper.app**.
+Die verbliebenen historischen Werte sollten nur zusammen mit einer vollständigen
+Migration geändert werden. Repository, Swift-Package, Target und ausführbare
+Datei heißen **LabelHelper**; das App-Paket heißt **Label Helper.app**.
 
 </details>
 

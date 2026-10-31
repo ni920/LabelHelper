@@ -39,8 +39,8 @@ public final class PostageStampStore: ObservableObject {
     private let persistenceURL: URL
 
     public init(directory: URL? = nil) {
-        self.directory = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("MunbynLabeler/Briefmarken", isDirectory: true)
+        self.directory = directory ?? ApplicationDataManager.prepareDefaultLocation().rootURL
+            .appendingPathComponent("Briefmarken", isDirectory: true)
         persistenceURL = self.directory.appendingPathComponent("bestand.json")
         try? FileManager.default.createDirectory(at: self.directory, withIntermediateDirectories: true)
         if FileManager.default.fileExists(atPath: persistenceURL.path) {

@@ -8,8 +8,8 @@ public final class LetterFlowStore: ObservableObject {
     private let url: URL
 
     public init(directory: URL? = nil) {
-        let directory = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("MunbynLabeler/Briefversand", isDirectory: true)
+        let directory = directory ?? ApplicationDataManager.prepareDefaultLocation().rootURL
+            .appendingPathComponent("Briefversand", isDirectory: true)
         url = directory.appendingPathComponent("versand.json")
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         guard FileManager.default.fileExists(atPath: url.path) else { return }

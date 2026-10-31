@@ -20,9 +20,12 @@ In App-Versionen mit **Browser-Erweiterung einrichten …**:
 
 **Ordner anzeigen** öffnet den Speicherort im Finder; **Pfad kopieren** kopiert
 ihn erneut. Der feste Speicherort ist
-`~/Library/Application Support/MunbynLabeler/BrowserExtension`.
+`~/Library/Application Support/LabelHelper/BrowserExtension`.
 Diesen Ordner nicht löschen oder verschieben, solange der Browser ihn verwendet.
 Bei erneuter Einrichtung werden die Dateien am selben Ort aktualisiert.
+Der frühere Pfad unter `MunbynLabeler/BrowserExtension` bleibt als
+Kompatibilitätslink erreichbar, damit eine bereits daraus geladene Erweiterung
+weiter funktioniert.
 Wenn du zuvor eine Kopie aus einem anderen Ordner geladen hast, entferne oder
 deaktiviere diese alte Erweiterung im Browser, bevor du die neue Kopie hinzufügst.
 
