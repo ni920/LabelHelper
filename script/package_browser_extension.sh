@@ -6,7 +6,7 @@ SOURCE_DIR="$ROOT_DIR/BrowserExtension"
 DIST_DIR="$ROOT_DIR/dist"
 ARCHIVE="$DIST_DIR/LabelHelper-Browser-Extension.zip"
 
-node --test "$SOURCE_DIR/tests/etsy-order.test.js"
+node --test "$SOURCE_DIR"/tests/*.test.js
 mkdir -p "$DIST_DIR"
 rm -f "$ARCHIVE"
 /usr/bin/ditto -c -k --norsrc --keepParent "$SOURCE_DIR" "$ARCHIVE"

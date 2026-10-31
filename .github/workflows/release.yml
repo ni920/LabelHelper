@@ -59,6 +59,7 @@ jobs:
           otool -L "$APP_BINARY" | grep -q Sparkle.framework
           codesign --verify --deep --strict 'dist/Label Helper.app'
           test -f 'dist/Label Helper.app/Contents/Resources/AppIcon.icns'
+          diff -qr BrowserExtension 'dist/Label Helper.app/Contents/Resources/BrowserExtension'
 
       - name: Package release
         run: |

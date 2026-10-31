@@ -83,3 +83,17 @@ Bewertung nach der Überarbeitung: **Good**. Das spezifische Merkmal ist das eig
 ### Abschließende Prüfung der installierten App
 
 Die installierte finale App wurde erneut geöffnet: native Liquid-Glass-Toolbar sichtbar, Kartentexte vollständig, „Importieren“ eindeutig beschriftet. Im breiten Fenster stehen die Adressfelder nun nachweislich neben der Vorschau. Die Startseite ist über ⇧⌘H erreichbar. Bei diesen Starts erschien keine unmittelbare Bluetooth-Abfrage. Die noch offene Freigabe wird beim bewussten Verbindungsversuch behandelt; eine neue Freigabe wurde während dieser Schlussprüfung nicht erteilt. Druckaufträge, Briefmarkenbestand und Briefverlauf sind bytegleich zum Ausgangsstand.
+
+## Briefmarken: sichtbare Sammelauswahl
+
+Die Sammelauswahl gehört direkt zur Markenliste, nicht ausschließlich in ein Toolbar-Menü. Über der Liste stehen das native Kontrollkästchen **Alle verfügbaren auswählen**, die Auswahlanzahl und ein einziges Menü **Aktionen** für Kopieren, Als-genutzt-Markieren und Löschen. Eine teilweise Auswahl zeigt den gemischten Checkbox-Zustand; ein weiterer Klick wählt alle verfügbaren Marken aus, bei vollständiger Auswahl hebt er sie auf. Reservierte und genutzte Marken bleiben ausgeschlossen.
+
+`toggles.md › Desktop (macOS) › Checkboxes`: “Accurately reflect a checkbox’s state in its appearance.” SwiftUIs Mehrfach-Toggle verwendet dieselben Bindings wie die einzelnen Marken. Das zusätzliche Toolbar-Menü entfällt; die Einzelaktionen bleiben im jeweiligen **…**-Menü.
+
+Mit isolierten Musterdaten wurde die gerenderte Checkbox über Accessibility-Aktionen betätigt: leer → alle verfügbar → teilweise ausgewählt → alle verfügbar → leer. Reservierte und genutzte Marken wurden nicht mit ausgewählt. Es wurden keine echten Briefmarken verändert oder gedruckt.
+
+## Geführte Browser-Einrichtung
+
+Ein einzelner Button in den allgemeinen Einstellungen öffnet ein natives Sheet mit Browserauswahl und drei passenden Schritten. Der 560 × 600 pt große Dialog hält seine Abschlussaktionen außerhalb des scrollbaren Inhalts sichtbar. Die Erweiterungsdateien stammen aus der App; die Einrichtung kündigt das Kopieren des Ordnerpfads ausdrücklich an. „Dateien vorbereitet“ bedeutet keine erfolgreiche Installation: Freigaben erfolgen ausschließlich im Browser. Safari weist vor dem Start auf die temporäre Gültigkeit hin.
+
+`sheets.md › Best practices`: “Display only one sheet at a time from the main interface.” Die Einrichtung öffnet keine weiteren Sheets. Browserwechsel, Safari-Hinweis und der Fehlerzustand für fehlende Ressourcen wurden an der gerenderten Ansicht geprüft; die Dateivorbereitung einschließlich wiederholter Aktualisierung und Fehlerbehandlung ist im Core-Selbsttest enthalten.

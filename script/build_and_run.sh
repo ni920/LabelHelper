@@ -110,6 +110,7 @@ if [[ -z "$SPARKLE_FRAMEWORK" ]]; then
 fi
 
 /usr/bin/ditto "$SPARKLE_FRAMEWORK" "$APP_FRAMEWORKS/Sparkle.framework"
+/usr/bin/ditto "$ROOT_DIR/BrowserExtension" "$APP_RESOURCES/BrowserExtension"
 
 ICONSET_DIR="$UNIVERSAL_BUILD_DIR/AppIcon.iconset"
 rm -rf "$ICONSET_DIR"
@@ -184,9 +185,9 @@ cat >"$INFO_PLIST" <<PLIST
   <key>LSMultipleInstancesProhibited</key>
   <true/>
   <key>CFBundleShortVersionString</key>
-  <string>0.8.3</string>
+  <string>0.8.4</string>
   <key>CFBundleVersion</key>
-  <string>24</string>
+  <string>25</string>
   <key>LSMinimumSystemVersion</key>
   <string>$MIN_SYSTEM_VERSION</string>
   <key>NSPrincipalClass</key>

@@ -48,7 +48,8 @@ struct PostageBundleView: View {
     private var layout: PostageSheetLayout { PostageSheetLayout(stampSizes: selected.map { $0.sourceRect.size }, format: format) }
     private var busy: Bool { appStore.printInProgress || appStore.printingPostageBatch }
     private var visibleEntries: [PostageStampStore.Entry] { store.entries.filter(filter.includes) }
-    private var availableCount: Int { store.entries.filter { $0.status == .available }.count }
+    private var availableEntries: [PostageStampStore.Entry] { store.entries.filter { $0.status == .available } }
+    private var availableCount: Int { availableEntries.count }
     private var usedCount: Int { store.entries.filter(\.isUsed).count }
 
     var body: some View {
@@ -88,6 +89,23 @@ struct PostageBundleView: View {
                     Spacer()
                     Text("\(availableCount) verfügbar · \(usedCount) genutzt")
                         .foregroundStyle(.secondary)
+                }
+                HStack(spacing: 12) {
+                    Toggle("Alle verfügbaren auswählen",
+                           sources: availableEntries.map { selectionBinding(for: $0) },
+                           isOn: \.self)
+                        .toggleStyle(.checkbox)
+                        .disabled(busy || availableEntries.isEmpty)
+                        .help("Alle verfügbaren Briefmarken auswählen oder die Auswahl aufheben.")
+                    Spacer()
+                    Text("\(selected.count) ausgewählt")
+                        .foregroundStyle(.secondary)
+                    Menu("Aktionen") {
+                        selectionActions
+                    }
+                    .fixedSize()
+                    .disabled(busy || selected.isEmpty)
+                    .help("Die ausgewählten Briefmarken gemeinsam verwalten.")
                 }
                 if visibleEntries.isEmpty {
                     ContentUnavailableView(filter == .used ? "Noch keine Marke genutzt" : "Keine verfügbaren Marken",
@@ -130,19 +148,6 @@ struct PostageBundleView: View {
             guard copiedSelection else { return }
             try? await Task.sleep(for: .seconds(2))
             if !Task.isCancelled { copiedSelection = false }
-        }
-        .toolbar {
-            if availableCount > 0 {
-                ToolbarItem {
-                    Menu {
-                        selectionActions
-                    } label: {
-                        Label(selected.isEmpty ? "Auswahl" : "Auswahl (\(selected.count))", systemImage: "checkmark.circle")
-                    }
-                    .disabled(busy)
-                    .help("Verfügbare Briefmarken auswählen und verwalten")
-                }
-            }
         }
         .alert("Marke erneut verwenden?", isPresented: Binding(
             get: { releaseEntry != nil }, set: { if !$0 { releaseEntry = nil } }
@@ -187,15 +192,22 @@ struct PostageBundleView: View {
         return flow
     }
 
+    private func selectionBinding(for entry: PostageStampStore.Entry) -> Binding<Bool> {
+        Binding(
+            get: { appStore.selectedPostageIDs.contains(entry.id) && entry.status == .available },
+            set: { value in
+                if value { appStore.selectedPostageIDs.insert(entry.id) }
+                else { appStore.selectedPostageIDs.remove(entry.id) }
+            }
+        )
+    }
+
     @ViewBuilder
     private func row(_ entry: PostageStampStore.Entry) -> some View {
         HStack(spacing: 14) {
-            Toggle(isOn: Binding(
-                get: { appStore.selectedPostageIDs.contains(entry.id) && entry.status == .available },
-                set: { value in
-                    if value { appStore.selectedPostageIDs.insert(entry.id) }
-                    else { appStore.selectedPostageIDs.remove(entry.id) }
-                })) { Text("Marke \(entry.stamp.number) · \(entry.stamp.amount) €") }
+            Toggle(isOn: selectionBinding(for: entry)) {
+                Text("Marke \(entry.stamp.number) · \(entry.stamp.amount) €")
+            }
                 .disabled(entry.status != .available || busy)
             PostageTrackingNumberView(stamp: entry.stamp, showsCopyButton: false)
             Spacer()
@@ -224,22 +236,6 @@ struct PostageBundleView: View {
 
     @ViewBuilder
     private var selectionActions: some View {
-        Button {
-            appStore.selectedPostageIDs = Set(store.entries.filter { $0.status == .available }.map(\.id))
-        } label: {
-            Label("Alle verfügbaren auswählen", systemImage: "checkmark.circle")
-        }
-        .disabled(selected.count == availableCount)
-
-        Button {
-            appStore.selectedPostageIDs = []
-        } label: {
-            Label("Auswahl aufheben", systemImage: "xmark.circle")
-        }
-        .disabled(selected.isEmpty)
-
-        Divider()
-
         Button {
             copiedSelection = copyTrackingNumbers(selected)
         } label: {

@@ -287,6 +287,20 @@ Die Daten werden ausschließlich über den lokalen App-Link
 beteiligt. Der Absender wird nicht aus Etsy übernommen, sondern einmalig unter
 **Label Helper → Einstellungen … → Allgemein** gespeichert.
 
+### Direkt aus der App einrichten
+
+Unter **Einstellungen → Allgemein → Etsy-Browser-Erweiterung** auf
+**Browser-Erweiterung einrichten …** klicken, **Chrome** oder **Safari** wählen
+und **Einrichtung starten**. Die App bereitet die mitgelieferten Dateien vor,
+kopiert den Ordnerpfad und öffnet den Browser. Dort bleiben nur noch die
+angezeigten Schritte zum Hinzufügen und Erlauben des Etsy-Zugriffs.
+
+Der Erweiterungsordner bleibt unter
+`~/Library/Application Support/MunbynLabeler/BrowserExtension` gespeichert.
+Die Vorbereitung installiert oder aktiviert nichts ohne Bestätigung im Browser.
+Safari wird damit weiterhin nur temporär eingerichtet. Die manuelle Alternative
+ist unten beschrieben.
+
 ### Chrome
 
 1. Im passenden GitHub Release `LabelHelper-Browser-Extension.zip`
@@ -300,20 +314,28 @@ beteiligt. Der Absender wird nicht aus Etsy übernommen, sondern einmalig unter
 
 ### Safari
 
-Chrome und Safari verwenden dieselben WebExtension-Dateien. Safari benötigt
-für eine dauerhafte Installation zusätzlich eine kleine, mit Xcode erzeugte
-Container-App. Aktuelle Safari-Versionen können den entpackten Ordner zum
-Testen auch vorübergehend über den Developer-Tab laden. Für einen lokalen
-Container-Build im Repository:
+Chrome und Safari verwenden dieselben WebExtension-Dateien. Für den
+Schnellstart ist kein Xcode nötig, wenn Safari temporäre Erweiterungen unterstützt:
 
-```bash
-./script/create_safari_extension_project.sh
-```
+1. Das Erweiterungs-ZIP aus dem Release entpacken.
+2. **Safari → Einstellungen → Erweitert → Funktionen für Webentwickler anzeigen**
+   aktivieren.
+3. Unter **Entwickler → Temporäre Erweiterung hinzufügen …** den Ordner
+   **BrowserExtension** mit der `manifest.json` auswählen.
+4. Die Erweiterung unter **Erweiterungen** einschalten und Zugriff auf
+   **etsy.com** erlauben; danach den Etsy-Tab neu laden.
 
-Danach das erzeugte Projekt in Xcode bauen und die Erweiterung unter
-**Safari → Einstellungen → Erweiterungen** einschalten. Für eine regulär
-signierte Safari-Veröffentlichung ist eine Apple-Developer-Mitgliedschaft
-erforderlich.
+Safari entfernt temporäre Erweiterungen nach **24 Stunden oder beim Beenden**.
+Für eine lokale Container-App ist vollständiges Xcode nötig. Das Script
+`./script/create_safari_extension_project.sh` erzeugt dafür ein Projekt; die
+Container-App muss anschließend über **Product → Run** gestartet werden.
+
+Die [vollständige Installationsanleitung](BrowserExtension/README.md) beschreibt
+Chrome, Safari, Updates und Fehlerbehebung. Sie ist auch unter
+**Browser-Erweiterung einrichten … → Ausführliche Anleitung** verlinkt.
+Nach einem App-Update die Einrichtung erneut starten, um den vorbereiteten
+Ordner zu aktualisieren, und die Erweiterung anschließend im Browser neu laden.
+Der App-Updater aktiviert keine Erweiterungen und ändert keine Browserprofile.
 
 ## Etikettenformate
 

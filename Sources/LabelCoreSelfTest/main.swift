@@ -251,6 +251,7 @@ do {
     try runCutGuideTests()
     try runFirmwareTests()
     try runGuidedShippingTests()
+    try runBrowserExtensionSetupTests()
     try runPostageTests()
     print("LabelCoreSelfTest: all checks passed")
 } catch {

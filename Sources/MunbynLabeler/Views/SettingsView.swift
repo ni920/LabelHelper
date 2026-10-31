@@ -22,6 +22,7 @@ struct SettingsView: View {
 
 private struct GeneralSettingsView: View {
     @ObservedObject var appStore: AppStore
+    @State private var showExtensionSetup = false
 
     var body: some View {
         Form {
@@ -29,6 +30,12 @@ private struct GeneralSettingsView: View {
                 Toggle("Geführten Modus verwenden", isOn: $appStore.guidedMode)
                 Text("Der geführte Modus zeigt die Vorbereitung Schritt für Schritt. Im Direktmodus stehen alle Versandfelder zusammen.")
                     .font(.callout)
+            }
+
+            Section("Etsy-Browser-Erweiterung") {
+                Text("Eine geöffnete Etsy-Bestellung aus Chrome oder Safari übernehmen.")
+                    .font(.callout)
+                Button("Browser-Erweiterung einrichten …") { showExtensionSetup = true }
             }
 
             Section("Absender für Briefetiketten") {
@@ -54,5 +61,8 @@ private struct GeneralSettingsView: View {
 
         }
         .formStyle(.grouped)
+        .sheet(isPresented: $showExtensionSetup) {
+            BrowserExtensionSetupView()
+        }
     }
 }
