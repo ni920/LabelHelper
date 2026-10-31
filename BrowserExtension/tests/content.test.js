@@ -26,7 +26,7 @@ function install({ complete = true } = {}) {
     addEventListener(event, callback) { if (event === "click") click = callback; }
   };
   const shadow = {
-    querySelector: (selector) => selector === ".munbyn-toast" ? toast : button
+    querySelector: (selector) => selector === ".label-helper-toast" ? toast : button
   };
   const document = {
     body: { appendChild(host) { roots.set(host.id, host); } },
@@ -37,7 +37,7 @@ function install({ complete = true } = {}) {
   const location = { href: "https://www.etsy.com/your/orders/1234567890" };
   const context = vm.createContext({
     document, location,
-    MunbynEtsy: {
+    LabelHelperEtsy: {
       ...api,
       extractOrder() {
         extractions += 1;
@@ -65,6 +65,7 @@ function install({ complete = true } = {}) {
 test("content script reads nothing before clicking and sends a complete Unicode address", () => {
   const page = install();
   assert.equal(page.roots.size, 1);
+  assert.equal(page.roots.has("munbyn-labeler-extension-root"), true, "Keep compatibility with existing injected buttons");
   assert.equal(page.extractions(), 0);
   page.click();
   assert.equal(page.extractions(), 1);
@@ -79,6 +80,14 @@ test("content script reads nothing before clicking and sends a complete Unicode 
   page.timers.find(({ delay }) => delay === 1500).callback();
   assert.equal(page.button.disabled, false);
   assert.equal(page.caption.textContent, "An Label Helper senden");
+});
+
+test("browser parser exposes the renamed API while retaining the compatible app link", () => {
+  const context = vm.createContext({ TextEncoder, btoa });
+  vm.runInContext(fs.readFileSync(path.join(directory, "etsy-order.js"), "utf8"), context);
+  assert.equal(typeof context.LabelHelperEtsy.extractOrder, "function");
+  const url = context.LabelHelperEtsy.buildAppURL({ version: 1, orderID: "1234567890", recipient });
+  assert.equal(new URL(url).protocol, "munbyn-labeler:");
 });
 
 test("incomplete addresses display an error instead of opening the app", () => {

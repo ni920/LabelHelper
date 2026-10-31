@@ -58,7 +58,7 @@ jobs:
 
       - name: Verify bundle
         run: |
-          APP_BINARY="dist/Label Helper.app/Contents/MacOS/MunbynLabeler"
+          APP_BINARY="dist/Label Helper.app/Contents/MacOS/LabelHelper"
           lipo "$APP_BINARY" -verify_arch arm64
           lipo "$APP_BINARY" -verify_arch x86_64
           test -d 'dist/Label Helper.app/Contents/Frameworks/Sparkle.framework'

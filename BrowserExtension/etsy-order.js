@@ -1,8 +1,8 @@
-(function exposeMunbynEtsy(root, factory) {
+(function exposeLabelHelperEtsy(root, factory) {
   const api = factory();
   if (typeof module === "object" && module.exports) module.exports = api;
-  root.MunbynEtsy = api;
-})(typeof globalThis !== "undefined" ? globalThis : this, function createMunbynEtsy() {
+  root.LabelHelperEtsy = api;
+})(typeof globalThis !== "undefined" ? globalThis : this, function createLabelHelperEtsy() {
   "use strict";
 
   const ADDRESS_LABELS = [
@@ -235,6 +235,7 @@
       recipient: payload.recipient,
       sourceURL: payload.sourceURL
     };
+    // Older Label Helper installations must still be able to open these links.
     return `munbyn-labeler://etsy-order?payload=${base64URL(JSON.stringify(appPayload))}`;
   }
 

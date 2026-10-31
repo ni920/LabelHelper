@@ -180,7 +180,7 @@ func runPostageTests() throws {
     if let option = CommandLine.arguments.firstIndex(of: "--postage-pdf"), CommandLine.arguments.indices.contains(option + 1) {
         let url = URL(fileURLWithPath: CommandLine.arguments[option + 1])
         let real = try PostagePDFService.readStamps(from: url)
-        let inspection = FileManager.default.temporaryDirectory.appendingPathComponent("munbyn-postage-preview")
+        let inspection = FileManager.default.temporaryDirectory.appendingPathComponent("label-helper-postage-preview")
         try FileManager.default.createDirectory(at: inspection, withIntermediateDirectories: true)
         for format in [LabelFormat.shipping100x150, .product100x50] {
             let files = try PostagePDFService.writeSheets(stamps: real, format: format, cutGuides: true, directory: inspection)

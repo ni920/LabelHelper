@@ -52,7 +52,7 @@ jobs:
 
       - name: Verify bundle
         run: |
-          APP_BINARY="dist/Label Helper.app/Contents/MacOS/MunbynLabeler"
+          APP_BINARY="dist/Label Helper.app/Contents/MacOS/LabelHelper"
           lipo "$APP_BINARY" -verify_arch arm64
           lipo "$APP_BINARY" -verify_arch x86_64
           test -d 'dist/Label Helper.app/Contents/Frameworks/Sparkle.framework'
@@ -77,7 +77,7 @@ jobs:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
           test -n "$SPARKLE_PRIVATE_KEY"
-          UPDATES_DIR="$RUNNER_TEMP/munbyn-updates"
+          UPDATES_DIR="$RUNNER_TEMP/label-helper-updates"
           mkdir -p "$UPDATES_DIR"
           cp dist/LabelHelper-universal.zip "$UPDATES_DIR/"
           printf '%s' "$SPARKLE_PRIVATE_KEY" | \

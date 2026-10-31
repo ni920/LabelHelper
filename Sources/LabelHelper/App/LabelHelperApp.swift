@@ -21,7 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 @main
-struct MunbynLabelerApp: App {
+struct LabelHelperApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var appStore = AppStore()
     private let updaterController = SPUStandardUpdaterController(

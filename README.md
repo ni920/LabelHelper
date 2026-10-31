@@ -3,12 +3,14 @@
 Native macOS app for preparing address and parcel labels and sending them to a
 MUNBYN RW403B over Bluetooth.
 
-Die App hieß zuvor **Munbyn Labeler**. Neue Builds heißen **Label Helper**;
-das macOS-App-Paket heißt `Label Helper.app`. Beim manuellen Umstieg die alte
-App beenden, die neue App nach **Programme** kopieren und anschließend die alte
-`MunbynLabeler.app` entfernen. Einstellungen, Briefmarkenbestand und Druckhistorie
-werden automatisch weiterverwendet. Bestehende Etsy-Erweiterungen öffnen die
-umbenannte App weiterhin über den bisherigen Link.
+Die App heißt **Label Helper**, das App-Paket `Label Helper.app`.
+Repository, Swift-Package, App-Target und ausführbare Datei heißen
+**LabelHelper**. Der App-Code liegt unter `Sources/LabelHelper`.
+
+Beim Umstieg von der früheren **Munbyn Labeler**-App das alte Programm beenden,
+Label Helper nach **Programme** kopieren und die alte `MunbynLabeler.app`
+entfernen. Einstellungen, Briefmarkenbestand und Druckhistorie werden
+weiterverwendet; bestehende Etsy-Erweiterungen öffnen die App weiterhin.
 
 The packaged app is a Universal 2 application containing native `arm64` and
 `x86_64` binaries. It runs on Apple Silicon and Intel Macs with macOS 14 or
@@ -54,14 +56,14 @@ Für beide Prozessorarten wird dieselbe Universal-App verwendet.
 
 ### Installation aus dem ZIP-Archiv
 
-1. Unter [GitHub Releases](https://github.com/ni920/MunbynLabeler/releases/latest)
+1. Unter [GitHub Releases](https://github.com/ni920/LabelHelper/releases/latest)
    die Datei `LabelHelper-universal.zip` herunterladen und entpacken.
 2. `Label Helper.app` in den macOS-Ordner **Programme** ziehen.
 3. **Label Helper** aus dem Programme-Ordner öffnen.
 4. Beim ersten Druckerversuch den Bluetooth-Zugriff erlauben.
 
 Ältere GitHub-Releases enthalten noch `MunbynLabeler-universal.zip` und
-`MunbynLabeler.app`. Die neuen Dateinamen gelten ab der nächsten Veröffentlichung.
+`MunbynLabeler.app`. Aktuelle Releases verwenden die oben genannten Label-Helper-Dateinamen.
 
 Die App benötigt keinen klassischen Installer und installiert keine
 Systemerweiterungen oder Hintergrunddienste.
@@ -246,11 +248,30 @@ The finished bundle is written to `dist/Label Helper.app`. The build script
 compiles both CPU architectures, combines them into one executable, generates
 the `.icns` icon set and applies an ad-hoc local signature.
 
+For a plain SwiftPM development build, use `swift build --product LabelHelper`
+or `swift run LabelHelper`. The complete `.app` from the build script is required
+for bundled browser-extension resources and macOS integration.
+
 Verify both architectures, the signature and a local launch with:
 
 ```bash
 ./script/build_and_run.sh verify
 ```
+
+### Compatibility identifiers
+
+The public project is [ni920/LabelHelper](https://github.com/ni920/LabelHelper).
+Existing repository and release links redirect to this name. To keep existing
+installations working, the app deliberately retains these technical identifiers:
+
+- Bundle ID: `de.nicosaia.MunbynLabeler` (preferences, authorization and Sparkle identity).
+- Storage root: `~/Library/Application Support/MunbynLabeler/` (including the stable unpacked extension path).
+- Browser link: `munbyn-labeler://etsy-order` (also understood by older app versions).
+- Local Safari-container ID: `de.nicosaia.MunbynLabeler.EtsyExtension`.
+
+Do not rename these identifiers without a separate migration. `MUNBYN` in
+printer names and protocol types refers to the hardware manufacturer, not the app.
+Historical release notes and old archive names retain their original names.
 
 ## Continuous integration
 
@@ -277,7 +298,7 @@ The first Bluetooth scan triggers the macOS Bluetooth permission dialog. The app
 Die Erweiterung ergänzt eine geöffnete Etsy-Bestellung um den Button
 **An Label Helper senden**. Nach dem Klick öffnet macOS die lokal installierte
 App oder bringt das bereits geöffnete App-Fenster nach vorne. Sie erzeugt dabei
-kein weiteres Munbyn-Labeler-Fenster. Dort werden nur Bestellnummer und
+kein weiteres Label-Helper-Fenster. Dort werden nur Bestellnummer und
 Empfänger angezeigt und erst nach der Auswahl **Brief** oder **Paket**
 übernommen. Artikeldaten werden weder ausgelesen noch an die App übertragen. Es
 wird niemals automatisch gedruckt.

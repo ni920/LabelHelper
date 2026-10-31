@@ -15,5 +15,5 @@ SafariExtension/
 .idea/libraries/Resources5.xml
 .idea/misc.xml
 .idea/modules.xml
-.idea/MunbynLabeler.iml
+.idea/*.iml
 .idea/vcs.xml

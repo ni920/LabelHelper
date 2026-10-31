@@ -45,7 +45,7 @@ struct BrowserExtensionSetupView: View {
                     .keyboardShortcut(.cancelAction)
                     .disabled(isPreparing)
                 Link("Ausführliche Anleitung",
-                     destination: URL(string: "https://github.com/ni920/MunbynLabeler/blob/main/BrowserExtension/README.md")!)
+                     destination: URL(string: "https://github.com/ni920/LabelHelper/blob/main/BrowserExtension/README.md")!)
                 Spacer()
                 Button(preparedDirectory == nil ? "Einrichtung starten" : "\(browser.rawValue) öffnen") {
                     Task { await prepareAndOpenBrowser() }

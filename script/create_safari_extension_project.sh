@@ -19,6 +19,7 @@ if [[ -e "$OUTPUT_DIR" ]]; then
   exit 1
 fi
 
+# Retain the identifier so existing local Safari-container builds can be updated.
 "$PACKAGER" "$SOURCE_DIR" \
   --project-location "$OUTPUT_DIR" \
   --app-name "Label Helper für Etsy" \

@@ -3,13 +3,13 @@
 import PackageDescription
 
 let package = Package(
-    name: "MunbynLabeler",
+    name: "LabelHelper",
     platforms: [
         .macOS(.v14)
     ],
     products: [
         .library(name: "LabelCore", targets: ["LabelCore"]),
-        .executable(name: "MunbynLabeler", targets: ["MunbynLabeler"]),
+        .executable(name: "LabelHelper", targets: ["LabelHelper"]),
         .executable(name: "LabelCoreSelfTest", targets: ["LabelCoreSelfTest"])
     ],
     dependencies: [
@@ -18,7 +18,7 @@ let package = Package(
     targets: [
         .target(name: "LabelCore"),
         .executableTarget(
-            name: "MunbynLabeler",
+            name: "LabelHelper",
             dependencies: [
                 "LabelCore",
                 .product(name: "Sparkle", package: "Sparkle")

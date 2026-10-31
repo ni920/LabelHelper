@@ -35,7 +35,7 @@ Fehlt der Einrichtungsbutton in deiner App, nutze die manuelle Installation:
 
 ## Manuelle Vorbereitung
 
-1. [Das aktuelle Release öffnen](https://github.com/ni920/MunbynLabeler/releases/latest).
+1. [Das aktuelle Release öffnen](https://github.com/ni920/LabelHelper/releases/latest).
 2. `LabelHelper-universal.zip` herunterladen, entpacken und **Label Helper.app**
    nach **Programme** verschieben. Die App einmal öffnen, bevor du eine Bestellung
    überträgst.

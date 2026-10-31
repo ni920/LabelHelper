@@ -3,9 +3,8 @@ set -euo pipefail
 
 MODE="${1:-run}"
 APP_NAME="Label Helper"
-# Retain the executable and bundle identity for existing preferences, print
-# history, Bluetooth authorization and browser links when changing the name.
-EXECUTABLE_NAME="MunbynLabeler"
+# Keep the bundle identity for existing preferences, authorization and updates.
+EXECUTABLE_NAME="LabelHelper"
 BUNDLE_ID="de.nicosaia.MunbynLabeler"
 MIN_SYSTEM_VERSION="14.0"
 CONFIGURATION="release"
@@ -65,7 +64,15 @@ if [[ ! -f "$ICON_SOURCE" ]]; then
   exit 1
 fi
 
-pkill -x "$EXECUTABLE_NAME" >/dev/null 2>&1 || true
+# Only stop instances from the build output, including the previous executable.
+while read -r PID COMMAND; do
+  if [[ "$COMMAND" == "$APP_BINARY" || "$COMMAND" == "$APP_MACOS/MunbynLabeler" ]]; then
+    if ! kill "$PID"; then
+      echo "Could not stop previous build process $PID." >&2
+      exit 1
+    fi
+  fi
+done < <(/bin/ps -axo pid=,comm=)
 
 cd "$ROOT_DIR"
 
@@ -197,7 +204,7 @@ cat >"$INFO_PLIST" <<PLIST
   <key>NSBluetoothPeripheralUsageDescription</key>
   <string>Label Helper benötigt Bluetooth für die Verbindung zum RW403B.</string>
   <key>SUFeedURL</key>
-  <string>https://github.com/ni920/MunbynLabeler/releases/latest/download/appcast.xml</string>
+  <string>https://github.com/ni920/LabelHelper/releases/latest/download/appcast.xml</string>
   <key>SUPublicEDKey</key>
   <string>4aN2cdQ63ff/1pUEqYsGAJEvzMI126W3mlxwUCvIhCY=</string>
   <key>SUEnableAutomaticChecks</key>
