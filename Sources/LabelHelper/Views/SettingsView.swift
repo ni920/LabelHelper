@@ -24,7 +24,7 @@ struct SettingsView: View {
 
 private struct GeneralSettingsView: View {
     @ObservedObject var appStore: AppStore
-    @State private var showExtensionSetup = false
+    @Environment(\.openWindow) private var openWindow
     @State private var restoreURL: URL?
     @State private var dataStatus: String?
     @State private var dataError: String?
@@ -40,7 +40,7 @@ private struct GeneralSettingsView: View {
             Section("Etsy-Browser-Erweiterung") {
                 Text("Eine geöffnete Etsy-Bestellung aus Chrome oder Safari übernehmen.")
                     .font(.callout)
-                Button("Browser-Erweiterung einrichten …") { showExtensionSetup = true }
+                Button("Browser-Erweiterung einrichten …") { openWindow(id: "browser-extension-setup") }
             }
 
             Section("Absender für Briefetiketten") {
@@ -101,9 +101,6 @@ private struct GeneralSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .sheet(isPresented: $showExtensionSetup) {
-            BrowserExtensionSetupView()
-        }
         .alert("Datensicherung wiederherstellen?", isPresented: Binding(
             get: { restoreURL != nil },
             set: { if !$0 { restoreURL = nil } }

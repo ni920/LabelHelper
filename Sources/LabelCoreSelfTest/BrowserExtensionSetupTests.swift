@@ -59,5 +59,30 @@ func runBrowserExtensionSetupTests() throws {
     scriptText = try String(contentsOf: script, encoding: .utf8)
     try require(scriptText == "updated script",
                 "An invalid bundled extension must preserve the previous installation")
+    var journey = BrowserExtensionSetupJourney()
+    journey.advance()
+    try require(journey.step == .files, "Setup must not advance when file preparation failed")
+    journey.didPrepareFiles(); journey.advance()
+    journey.advance()
+    try require(journey.step == .browser, "Opening a browser must not imply developer mode is enabled")
+    journey.browserConfigured = true; journey.advance()
+    journey.advance()
+    try require(journey.step == .installation, "Prepared files must not be reported as an installed extension")
+    journey.installationConfirmed = true; journey.advance()
+    journey.advance()
+    try require(journey.step == .access, "Installation must not imply website permission")
+    journey.accessConfirmed = true; journey.advance()
+    try require(journey.step == .transfer && !journey.canAdvance, "A browser opening must not confirm a successful order transfer")
+    journey.transferConfirmed = true; journey.advance()
+    try require(journey.step == .transfer && journey.canAdvance, "Completed setup must remain bounded at its final step")
+    journey.select(.safari)
+    try require(journey.step == .files && journey.filesPrepared && !journey.browserConfigured &&
+                !journey.installationConfirmed && !journey.accessConfirmed && !journey.transferConfirmed,
+                "Switching browser must retain files and reset browser-specific confirmations")
+    journey.advance(); journey.browserConfigured = true; journey.advance(); journey.back()
+    try require(journey.step == .browser && journey.filesPrepared, "Back must preserve the prepared folder")
+    journey.restart()
+    try require(journey.step == .files && journey.filesPrepared && !journey.browserConfigured,
+                "Reopening setup must clear previous confirmations")
     print("Browser extension setup passed: resource copy, stable updates, validation, failure recovery")
 }

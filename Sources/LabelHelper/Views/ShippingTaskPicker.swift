@@ -2,6 +2,7 @@ import LabelCore
 import SwiftUI
 
 struct ShippingTaskPicker: View {
+    @Environment(\.openWindow) private var openWindow
     var disabled: Bool
     var choose: (GuidedShippingJourney.Task) -> Void
 
@@ -25,6 +26,8 @@ struct ShippingTaskPicker: View {
             DisclosureGroup("Adressen aus Etsy übernehmen") {
                 Text("Sende eine Bestellung mit der Browser-Erweiterung an Label Helper. Alternativ kannst du im Briefschritt eine Etsy-CSV importieren.")
                     .font(.callout).padding(.top, 8).fixedSize(horizontal: false, vertical: true)
+                Button("Browser-Erweiterung einrichten …") { openWindow(id: "browser-extension-setup") }
+                    .padding(.top, 8).disabled(disabled)
             }
             .font(.callout)
         }

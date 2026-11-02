@@ -30,6 +30,7 @@ private enum SidebarSelection: String, CaseIterable, Identifiable {
 }
 
 struct ContentView: View {
+    @Environment(\.openWindow) private var openWindow
     @EnvironmentObject private var appStore: AppStore
     @State private var journey = GuidedShippingJourney()
     @State private var selection: SidebarSelection? = .printer
@@ -148,6 +149,7 @@ struct ContentView: View {
                 Menu("Importieren") {
                     Button("PDF oder Bild …", action: appStore.requestLabelImport)
                     Button("Etsy-Adresse aus CSV …") { appStore.showEtsyImporter = true }
+                    Button("Browser-Erweiterung einrichten …") { openWindow(id: "browser-extension-setup") }
                     Button("Briefmarken-Bündel …") { appStore.showPostageImporter = true }
                 }
                 .accessibilityLabel("Importieren")

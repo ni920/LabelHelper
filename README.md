@@ -156,19 +156,51 @@ senden**. Übertragen werden nur Bestellnummer und Empfängeradresse – lokal �
 den App-Link `munbyn-labeler://etsy-order`. Artikeldaten werden nicht gelesen
 und es wird niemals automatisch gedruckt.
 
-Am einfachsten erfolgt die Einrichtung direkt in der App:
+### Einfacher Einstieg ab Version 0.8.6
 
-1. **Label Helper → Einstellungen → Allgemein** öffnen.
-2. Unter **Etsy-Browser-Erweiterung** auf
-   **Browser-Erweiterung einrichten …** klicken.
-3. Chrome oder Safari wählen und den angezeigten Schritten folgen.
+1. **Label Helper.app** aus `LabelHelper-universal.zip` nach **Programme** ziehen
+   und öffnen. Nutze das [aktuelle Release](https://github.com/ni920/LabelHelper/releases/latest).
+2. **Hilfe → Browser-Erweiterung einrichten …** wählen. Derselbe Einstieg steht
+   unter **Importieren** und **Einstellungen → Allgemein** zur Verfügung.
+3. **Chrome** oder **Safari** wählen. Die Hilfe führt durch fünf einzelne Schritte:
+   Dateien vorbereiten, Browser vorbereiten, Erweiterung hinzufügen, Etsy-Zugriff
+   erlauben und eine Bestellung übernehmen.
 
-Alternativ kann `LabelHelper-Browser-Extension.zip` aus dem aktuellen Release
-manuell installiert werden. Safari lädt die Erweiterung ohne Xcode nur temporär
-für 24 Stunden beziehungsweise bis zum Beenden.
+Die Erweiterung ist in der App enthalten. **Kein zusätzlicher ZIP-Download,
+kein Quellcode und kein Terminal nötig**, wenn du die App-Einrichtung verwendest.
+Die App bereitet nur die Dateien vor. Installation, Website-Zugriff und die
+abschließende Adressübernahme bestätigst du selbst in der Hilfe und im Browser.
+**Zurück** wiederholt einen Schritt; **Ordnerpfad kopieren** und **Ordner anzeigen**
+helfen bei der Auswahl des richtigen Verzeichnisses.
 
-Die [vollständige Anleitung](BrowserExtension/README.md) erklärt Installation,
-Updates und Fehlerbehebung für Chrome und Safari.
+| Browser | Installation und Grenze |
+| --- | --- |
+| **Chrome** | Auf `chrome://extensions/` den Entwicklermodus aktivieren und den vorbereiteten Ordner über **Entpackte Erweiterung laden** auswählen. Den Ordner dauerhaft behalten. |
+| **Safari** | Falls vorhanden, unter **Einstellungen → Entwickler → Temporäre Erweiterung hinzufügen …** den Ordner auswählen. Diese Installation endet beim Beenden von Safari oder nach 24 Stunden. |
+
+Danach die Erweiterung aktivieren, `etsy.com` den Zugriff erlauben, Etsy neu laden
+und die Details einer Bestellung mit sichtbarer Versandadresse öffnen. Der
+Button **An Label Helper senden** erscheint unten rechts auf der Etsy-Seite.
+Nach dem Bestätigen des App-Links die Adresse in Label Helper kontrollieren.
+**Für diesen Test muss nichts gedruckt und kein Porto gekauft werden.**
+
+Wer manuell installieren möchte, lädt zusätzlich
+`LabelHelper-Browser-Extension.zip`, entpackt es und wählt den Ordner
+**BrowserExtension** mit `manifest.json`. Das App-ZIP und **Source code** sind
+keine installierbare Browser-Erweiterung.
+
+Eine dauerhaft verteilbare Safari-Erweiterung benötigt eine separat verpackte
+und signierte Container-App. Diese wird derzeit nicht als Download geliefert.
+Der lokale Xcode-Aufbau ist ein Entwicklungsweg und setzt vollständiges Xcode
+sowie passende Signierung voraus; unsignierte Aufbauten benötigen nach einem
+Safari-Neustart erneut die Entwicklerfreigabe.
+
+Die [Schritt-für-Schritt-Anleitung](BrowserExtension/README.md) beschreibt Chrome,
+Safari, die manuelle ZIP-Installation, Updates und typische Fehler getrennt.
+Die Browseranforderungen wurden am **02.11.2026** anhand der dort verlinkten
+Google- und Apple-Dokumentation geprüft. Sparkle aktualisiert die App; eine
+manuell hinzugefügte Browser-Erweiterung muss anschließend separat neu geladen
+werden. Der von der App vorbereitete Erweiterungsordner bleibt dauerhaft erhalten.
 
 ## Fehlerbehebung
 

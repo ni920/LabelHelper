@@ -21,7 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag {
-            sender.windows.first(where: { $0.canBecomeKey })?.makeKeyAndOrderFront(nil)
+            sender.windows.first(where: { $0.identifier?.rawValue == "main" })?.makeKeyAndOrderFront(nil)
         }
         return true
     }
@@ -40,7 +40,7 @@ struct LabelHelperApp: App {
                 .onOpenURL { url in
                     appStore.handleIncomingURL(url)
                     NSApp.activate(ignoringOtherApps: true)
-                    NSApp.windows.first(where: { $0.canBecomeKey })?.makeKeyAndOrderFront(nil)
+                    NSApp.windows.first(where: { $0.identifier?.rawValue == "main" })?.makeKeyAndOrderFront(nil)
                 }
         }
         .defaultSize(width: 1_080, height: 720)
@@ -52,6 +52,7 @@ struct LabelHelperApp: App {
                 .disabled(!appDelegate.updaterController.updater.canCheckForUpdates)
             }
 
+            BrowserExtensionSetupCommands()
             ShippingCommands(appStore: appStore)
             CommandGroup(after: .newItem) {
                 Button("Etikett importieren …") {
@@ -72,6 +73,12 @@ struct LabelHelperApp: App {
                 .keyboardShortcut("e", modifiers: [.command, .shift])
             }
         }
+
+        Window("Browser-Erweiterung einrichten", id: "browser-extension-setup") {
+            BrowserExtensionSetupView()
+        }
+        .defaultSize(width: 640, height: 650)
+        .windowResizability(.contentSize)
 
         Settings {
             SettingsView()
