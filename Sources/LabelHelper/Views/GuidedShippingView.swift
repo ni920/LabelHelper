@@ -200,9 +200,11 @@ struct GuidedShippingView: View {
                 Divider()
                 SenderSummaryView(appStore: appStore)
                 Divider()
-                Label(appStore.printedLabelFormat(appStore.selectedLetterLabelFormat).sizeDescription, systemImage: "rectangle")
+                if !appStore.usesCombinedLetterLabel {
+                    Label(appStore.printedLabelFormat(appStore.selectedLetterLabelFormat).sizeDescription, systemImage: "rectangle")
+                }
                 if appStore.letterWithPostage, let stamp = letterStamp {
-                    Text("1. Adressetikett · 2. Briefmarke mit \(stamp.amount) €")
+                    Text(appStore.combinedLabel.isEnabled ? "Ein Etikett mit Adresse und Briefmarke mit \(stamp.amount) €" : "1. Adressetikett · 2. Briefmarke mit \(stamp.amount) €")
                     Text("Nach dem Druck kannst du die Sendungsnummer kopieren. Der Druck startet erst in der Vorschau.")
                 } else if appStore.letterWithPostage {
                     Text("Adresse und Briefmarke sind gewählt. Bitte noch eine verfügbare Briefmarke mit passendem Portowert auswählen.")
@@ -239,7 +241,7 @@ struct GuidedShippingView: View {
             if journey.step != .recipient && appStore.letterWithPostage {
                 if letterStamp == nil { return "Bitte eine verfügbare Briefmarke mit passendem Portowert auswählen." }
                 if journey.step != .franking {
-                    if let stamp = letterStamp, PostageSheetLayout(stampSizes: [stamp.sourceRect.size], format: appStore.selectedLetterPostageFormat).capacity == 0 {
+                    if !appStore.combinedLabel.isEnabled, let stamp = letterStamp, PostageSheetLayout(stampSizes: [stamp.sourceRect.size], format: appStore.selectedLetterPostageFormat).capacity == 0 {
                         return "Die Briefmarke passt nicht in Originalgröße. Bitte ein größeres Etikettenformat wählen."
                     }
                 }

@@ -44,10 +44,22 @@ public struct LetterShipmentFlow: Identifiable, Codable, Equatable, Sendable {
     public var stage: Stage
     public var errorMessage: String?
     public var reprintSelection: ReprintSelection?
+    /// Address and stamp are one label: `stampJob` prints both, `addressJob` is the same job.
+    private let combined: Bool?
 
+    public var isCombined: Bool { combined == true }
     public var needsPostagePrint: Bool { reprintSelection != .address }
 
     public var statusTitle: String {
+        if isCombined {
+            let isReprint = reprintSelection != nil
+            switch stage {
+            case .ready, .addressPrinted: return isReprint ? "Nachdruck bereit" : "Bereit"
+            case .printingAddress, .printingStamp: return isReprint ? "Etikett wird erneut gedruckt" : "Etikett wird gedruckt"
+            case .completed: return isReprint ? "Nachdruck abgeschlossen" : "Etikett mit Briefmarke gedruckt"
+            case .addressCheck, .stampCheck: return "Etikettausdruck prüfen"
+            }
+        }
         guard reprintSelection != nil else { return stage.title }
         switch stage {
         case .ready: return "Nachdruck bereit"
@@ -60,8 +72,9 @@ public struct LetterShipmentFlow: Identifiable, Codable, Equatable, Sendable {
     }
 
     public init(id: UUID, recipientName: String, orderID: String?, stamp: PostageStamp,
-                addressJob: PrintJob, stampJob: PrintJob, createdAt: Date = Date(), stage: Stage = .ready) {
+                addressJob: PrintJob, stampJob: PrintJob, createdAt: Date = Date(), stage: Stage = .ready, isCombined: Bool = false) {
         self.id = id; self.createdAt = createdAt; self.recipientName = recipientName; self.orderID = orderID
         self.stamp = stamp; self.addressJob = addressJob; self.stampJob = stampJob; self.stage = stage
+        combined = isCombined ? true : nil
     }
 }

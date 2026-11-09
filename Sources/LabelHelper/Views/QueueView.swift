@@ -1,3 +1,4 @@
+import AppKit
 import LabelCore
 import SwiftUI
 
@@ -6,7 +7,17 @@ struct QueueView: View {
     @ObservedObject var jobStore: PrintJobStore
 
     var body: some View {
-        Group {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Erledigte Aufträge bleiben im Label-Verlauf erhalten.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Erledigte entfernen") {
+                    jobStore.clearCompleted()
+                }
+                .disabled(!jobStore.jobs.contains { $0.status == .printed })
+            }
             if jobStore.jobs.isEmpty {
                 ContentUnavailableView(
                     "Noch keine Etiketten",
@@ -36,6 +47,8 @@ struct QueueView: View {
                             Button(job.status == .failed ? "Erneut prüfen" : "Vorschau") {
                                 if job.status == .failed { jobStore.retry(job.id) }
                                 appStore.presentPrintPreview(job)
+                                // The preview is a sheet on the main window, which may be behind this one.
+                                NSApp.windows.first { $0.identifier?.rawValue == "main" }?.makeKeyAndOrderFront(nil)
                             }
                             .disabled(job.status == .printing)
                         }
@@ -43,13 +56,6 @@ struct QueueView: View {
                     .padding(.vertical, 5)
                 }
             }
-        }
-        .navigationTitle("Druckaufträge")
-        .toolbar {
-            Button("Erledigte entfernen") {
-                jobStore.clearCompleted()
-            }
-            .disabled(!jobStore.jobs.contains { $0.status == .printed })
         }
     }
 

@@ -68,7 +68,156 @@ struct PrintLayoutTests {
             try require(abs(bounds.height - format.heightMM * 72 / 25.4) < 0.01, "Existing fixed address format changed")
         }
         try checkPostage(addressFormat: shortFormat)
-        print("Print layout tests passed: complete addresses, compact PDFs, unchanged postage pixels and shorter printer payloads")
+        try checkDesign(recipient: short, long: long, sender: sender)
+        try checkCombined(recipients: [short, international, long], sender: sender)
+        print("Print layout tests passed: complete addresses, compact PDFs, unchanged postage pixels, shorter printer payloads and label designs")
+    }
+
+    private static func inkBounds(_ raster: LabelRaster) -> (minX: Int, maxX: Int, minY: Int, maxY: Int)? {
+        var result: (minX: Int, maxX: Int, minY: Int, maxY: Int)?
+        for y in 0..<raster.height {
+            for x in 0..<raster.width where raster.bitmap[y * raster.bytesPerRow + x / 8] & (0x80 >> UInt8(x % 8)) != 0 {
+                result = (min(result?.minX ?? x, x), max(result?.maxX ?? x, x), min(result?.minY ?? y, y), max(result?.maxY ?? y, y))
+            }
+        }
+        return result
+    }
+
+    private static func ink(_ recipient: RecipientAddress, _ sender: SenderAddress, _ format: LabelFormat,
+                            _ design: AddressLabelDesign) throws -> (minX: Int, maxX: Int, minY: Int, maxY: Int) {
+        let data = try EtsyAddressLabelWriter.makePDFData(recipient: recipient, sender: sender, format: format, design: design)
+        guard let bounds = inkBounds(try LabelRenderer.render(pdfData: data, format: format)) else {
+            throw TestFailure.assertion("Designed label is empty")
+        }
+        return bounds
+    }
+
+    private static func checkCombined(recipients: [RecipientAddress], sender: SenderAddress) throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("combined-\(UUID())", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("stamp.pdf")
+        var box = CGRect(x: 0, y: 0, width: 116, height: 68)
+        guard let context = CGContext(source as CFURL, mediaBox: &box, nil) else { throw TestFailure.assertion("Cannot write stamp") }
+        context.beginPDFPage(nil)
+        context.fill(CGRect(x: 2, y: 2, width: 112, height: 64))
+        context.endPDFPage()
+        context.closePDF()
+        let stamp = PostageStamp(id: "TEST", sourceURL: source, pageNumber: 1, number: 1, amount: "TEST", sourceRect: box)
+        var settings = CombinedLabelSettings.standard
+        settings.isEnabled = true
+        for arrangement in CombinedLabelSettings.Arrangement.allCases {
+            settings.arrangement = arrangement
+            for recipient in recipients {
+                let label = try EtsyAddressLabelWriter.makeCombinedPDF(
+                    recipient: recipient, sender: sender, stamp: stamp, stampSize: box.size, format: .shipping100x150, continuous: true,
+                    settings: settings, placement: .standard, design: .standard
+                )
+                let text = (PDFDocument(data: label.data)?.page(at: 0)?.string ?? "").filter { !$0.isWhitespace }.uppercased()
+                for field in [recipient.name, recipient.street1, recipient.postalCode, recipient.city] {
+                    try require(text.contains(field.filter { !$0.isWhitespace }.uppercased()), "Combined label lost \(field)")
+                }
+                let raster = try LabelRenderer.render(pdfData: label.data, format: label.format)
+                try checkPrintGeometry(raster, format: label.format)
+                let ink = raster.bitmap.reduce(0) { $0 + $1.nonzeroBitCount }
+                let stampInk = Int(112 * 8 * 25.4 / 72 * 64 * 8 * 25.4 / 72)
+                try require(ink > stampInk * 9 / 10, "Combined label lost the stamp: \(ink) of \(stampInk) dots")
+            }
+        }
+        settings.arrangement = .stampRight
+        let fixed = try EtsyAddressLabelWriter.makeCombinedPDF(
+            recipient: recipients[0], sender: sender, stamp: stamp, stampSize: box.size, format: .product100x50, continuous: false,
+            settings: settings, placement: .standard, design: .standard
+        )
+        let raster = try LabelRenderer.render(pdfData: fixed.data, format: fixed.format)
+        guard let bounds = inkBounds(raster) else { throw TestFailure.assertion("Combined fixed label is empty") }
+        try require(fixed.format == .product100x50 && bounds.maxX > 760 && bounds.minY < 40, "Stamp is not in the top right corner")
+        do {
+            _ = try EtsyAddressLabelWriter.makeCombinedPDF(
+                recipient: recipients[0], sender: sender, stamp: stamp, stampSize: box.size, format: .custom(widthMM: 50, heightMM: 30), continuous: false,
+                settings: settings, placement: .standard, design: .standard
+            )
+            throw TestFailure.assertion("A label too small for address and stamp must be refused")
+        } catch EtsyAddressLabelWriterError.stampDoesNotFit {}
+    }
+
+    private static func checkDesign(recipient: RecipientAddress, long: RecipientAddress, sender: SenderAddress) throws {
+        let large = LabelFormat.shipping100x150
+        var hidden = AddressLabelDesign.standard
+        hidden.senderPlacement = .hidden
+
+        let data = try EtsyAddressLabelWriter.makePDFData(recipient: recipient, sender: sender, format: large, design: hidden)
+        let text = PDFDocument(data: data)?.page(at: 0)?.string ?? ""
+        try require(!text.contains(sender.name) && text.contains(recipient.name), "Hidden sender is still printed")
+        try require(EtsyAddressLabelWriter.continuousFormat(recipient: recipient, sender: sender, design: hidden).heightMM
+                    < EtsyAddressLabelWriter.continuousFormat(recipient: recipient, sender: sender).heightMM,
+                    "Hiding the sender must shorten a continuous label")
+
+        var design = hidden
+        design.recipientAlignment = .trailing
+        let right = try ink(recipient, sender, large, design)
+        design.recipientAlignment = .center
+        let center = try ink(recipient, sender, large, design)
+        let left = try ink(recipient, sender, large, hidden)
+        try require(left.minX < center.minX && center.minX < right.minX, "Recipient alignment has no effect")
+        try require(abs((center.minX + center.maxX) - large.widthDots) < 16, "Centered address is off-center")
+
+        design = hidden
+        design.recipientVerticalPlacement = .top
+        let top = try ink(recipient, sender, large, design)
+        design.recipientVerticalPlacement = .bottom
+        let bottom = try ink(recipient, sender, large, design)
+        try require(top.minY < 120 && large.heightDots - bottom.maxY < 120, "Vertical placement has no effect")
+
+        var senderBelow = AddressLabelDesign.standard
+        senderBelow.senderPlacement = .bottom
+        let continuous = EtsyAddressLabelWriter.continuousFormat(recipient: recipient, sender: sender, design: senderBelow)
+        let continuousPDF = try EtsyAddressLabelWriter.makePDFData(recipient: recipient, sender: sender, format: continuous, design: senderBelow)
+        let topInk = try ink(recipient, sender, continuous, senderBelow)
+        let standardTop = try ink(recipient, sender, EtsyAddressLabelWriter.continuousFormat(recipient: recipient, sender: sender), .standard)
+        try require(!continuousPDF.isEmpty && topInk.minY != standardTop.minY, "Sender placement has no effect on continuous labels")
+
+        var margin = AddressLabelDesign.standard
+        margin.extraMarginMM = 5
+        let marginInk = try ink(recipient, sender, large, margin)
+        let standardInk = try ink(recipient, sender, large, .standard)
+        try require(marginInk.minX - standardInk.minX >= 36, "Extra margin has no effect")
+
+        // Every extreme either renders a complete address or refuses; it must never cut lines off.
+        for format in [LabelFormat.address89x36, .address70x36, .square50, .product100x50, .shipping100x150] {
+            for scale in [AddressLabelDesign.scaleRange.lowerBound, AddressLabelDesign.scaleRange.upperBound] {
+                for typeface in AddressLabelDesign.Typeface.allCases {
+                    var extreme = AddressLabelDesign.standard
+                    extreme.recipientScale = scale
+                    extreme.senderScale = scale
+                    extreme.typeface = typeface
+                    extreme.extraMarginMM = scale > 1 ? 8 : 0
+                    extreme.showsSeparator = true
+                    do {
+                        let data = try EtsyAddressLabelWriter.makePDFData(recipient: recipient, sender: sender, format: format, design: extreme)
+                        let text = (PDFDocument(data: data)?.page(at: 0)?.string ?? "").filter { !$0.isWhitespace }
+                        for field in [recipient.name, recipient.street1, recipient.postalCode, recipient.city] {
+                            try require(text.contains(field.filter { !$0.isWhitespace }), "Lost \(field) on \(format.name)")
+                        }
+                    } catch EtsyAddressLabelWriterError.addressDoesNotFit {
+                        continue
+                    }
+                }
+            }
+        }
+        do {
+            _ = try EtsyAddressLabelWriter.makePDFData(recipient: long, sender: sender, format: .address70x36)
+            throw TestFailure.assertion("An address that cannot fit must be refused, not cut off")
+        } catch EtsyAddressLabelWriterError.addressDoesNotFit {}
+        for scale in [0.7, 1.5] {
+            var extreme = AddressLabelDesign.standard
+            extreme.recipientScale = scale
+            extreme.senderScale = scale
+            extreme.extraMarginMM = 8
+            extreme.showsSeparator = true
+            let format = EtsyAddressLabelWriter.continuousFormat(recipient: long, sender: sender, design: extreme)
+            _ = try EtsyAddressLabelWriter.makePDFData(recipient: long, sender: sender, format: format, design: extreme)
+        }
     }
 
     private static func checkPrintGeometry(_ raster: LabelRaster, format: LabelFormat) throws {

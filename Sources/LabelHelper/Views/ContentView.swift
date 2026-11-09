@@ -4,8 +4,7 @@ import UniformTypeIdentifiers
 
 private enum SidebarSelection: String, CaseIterable, Identifiable {
     case printer
-    case letters
-    case queue
+    case labels
     case postage
 
     var id: String { rawValue }
@@ -13,8 +12,7 @@ private enum SidebarSelection: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .printer: "Versenden"
-        case .letters: "Briefverlauf"
-        case .queue: "Druckaufträge"
+        case .labels: "Label-Verlauf"
         case .postage: "Briefmarken"
         }
     }
@@ -22,8 +20,7 @@ private enum SidebarSelection: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .printer: "printer.fill"
-        case .letters: "envelope"
-        case .queue: "list.bullet.rectangle"
+        case .labels: "clock.arrow.circlepath"
         case .postage: "rectangle.stack"
         }
     }
@@ -53,10 +50,8 @@ struct ContentView: View {
                 } else {
                     DashboardView(appStore: appStore, bluetooth: appStore.bluetooth, jobStore: appStore.jobs)
                 }
-            case .letters:
-                LetterFlowHistoryView(appStore: appStore, store: appStore.letterFlows)
-            case .queue:
-                QueueView(appStore: appStore, jobStore: appStore.jobs)
+            case .labels:
+                LabelHistoryView(appStore: appStore, letters: appStore.letterFlows, labels: appStore.labelHistory)
             case .postage:
                 PostageBundleView(appStore: appStore, store: appStore.postage)
             }
@@ -108,6 +103,14 @@ struct ContentView: View {
         .sheet(item: $appStore.letterFlowPreview) { flow in
             LetterFlowView(appStore: appStore, store: appStore.letterFlows, controller: appStore.letterFlowController,
                            bluetooth: appStore.bluetooth, initialFlow: flow)
+        }
+        .alert("Export fehlgeschlagen", isPresented: Binding(
+            get: { appStore.historyExportError != nil },
+            set: { if !$0 { appStore.historyExportError = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(appStore.historyExportError ?? "")
         }
         .alert("Etsy-Import fehlgeschlagen", isPresented: $appStore.showEtsyImportError) {
             Button("OK", role: .cancel) {}

@@ -4,6 +4,7 @@ import LabelCore
 @MainActor
 final class PrintJobStore: ObservableObject {
     @Published private(set) var jobs: [PrintJob] = []
+    var onStatusChange: ((UUID, PrintJob.Status, String?) -> Void)?
     private let persistenceURL: URL
 
     init(directory: URL? = nil, fileManager: FileManager = .default) {
@@ -53,6 +54,7 @@ final class PrintJobStore: ObservableObject {
         jobs[index].status = status
         jobs[index].errorMessage = errorMessage
         persist()
+        onStatusChange?(id, status, errorMessage)
     }
 
     func retry(_ id: UUID) {

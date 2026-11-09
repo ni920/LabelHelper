@@ -55,9 +55,49 @@ public enum PostagePDFService {
         }
     }
 
+    /// Places a ready address PDF and one stamp on a single page. Without a
+    /// stamp a marked box stands in for it, for layout previews only.
+    public static func combinedLabelData(addressPDF: Data, layout: CombinedLabelLayout, stamp: PostageStamp?) throws -> Data {
+        guard let provider = CGDataProvider(data: addressPDF as CFData),
+              let addressPage = CGPDFDocument(provider)?.page(at: 1) else { throw PostagePDFError.cannotWrite }
+        let data = NSMutableData()
+        var mediaBox = CGRect(x: 0, y: 0, width: layout.format.widthMM * 72 / 25.4, height: layout.format.heightMM * 72 / 25.4)
+        guard let consumer = CGDataConsumer(data: data as CFMutableData),
+              let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else { throw PostagePDFError.cannotWrite }
+        context.beginPDFPage(nil)
+        context.setFillColor(gray: 1, alpha: 1)
+        context.fill(mediaBox)
+        context.saveGState()
+        context.translateBy(x: layout.addressOrigin.x, y: layout.addressOrigin.y)
+        context.drawPDFPage(addressPage)
+        context.restoreGState()
+        if let stamp {
+            guard let page = CGPDFDocument(stamp.sourceURL as CFURL)?.page(at: stamp.pageNumber) else {
+                context.endPDFPage(); context.closePDF(); throw PostagePDFError.unreadable
+            }
+            context.saveGState()
+            context.clip(to: layout.stampRect)
+            context.translateBy(x: layout.stampRect.minX - stamp.sourceRect.minX, y: layout.stampRect.minY - stamp.sourceRect.minY)
+            context.drawPDFPage(page)
+            context.restoreGState()
+        } else {
+            let box = layout.stampRect.insetBy(dx: 0.5, dy: 0.5)
+            context.setStrokeColor(gray: 0, alpha: 1)
+            context.setLineWidth(1)
+            context.stroke(box)
+            context.strokeLineSegments(between: [CGPoint(x: box.minX, y: box.minY), CGPoint(x: box.maxX, y: box.maxY),
+                                                 CGPoint(x: box.minX, y: box.maxY), CGPoint(x: box.maxX, y: box.minY)])
+        }
+        context.endPDFPage()
+        context.closePDF()
+        return data as Data
+    }
+
     public static func writeSheets(stamps: [PostageStamp], format: LabelFormat, cutGuides: Bool, directory: URL,
-                                   fitHeightToContent: Bool = false) throws -> [(url: URL, stampIDs: [String], format: LabelFormat)] {
-        let layout = PostageSheetLayout(stampSizes: stamps.map { $0.sourceRect.size }, format: format, fitHeightToContent: fitHeightToContent)
+                                   fitHeightToContent: Bool = false,
+                                   placement: PostageStampPlacement = .standard) throws -> [(url: URL, stampIDs: [String], format: LabelFormat)] {
+        let layout = PostageSheetLayout(stampSizes: stamps.map { $0.sourceRect.size }, format: format,
+                                        fitHeightToContent: fitHeightToContent, placement: placement)
         guard layout.capacity > 0, !layout.sheets.isEmpty else { throw PostagePDFError.formatTooSmall }
         var documents: [URL: CGPDFDocument] = [:]
         var output: [(URL, [String], LabelFormat)] = []
@@ -84,11 +124,12 @@ public enum PostagePDFService {
                 context.setStrokeColor(gray: 0, alpha: 1)
                 context.setLineWidth(0.35)
                 context.setLineDash(phase: 0, lengths: [2, 3])
-                let left = (mediaBox.width - Double(layout.columns) * layout.cellSize.width) / 2
-                let top = mediaBox.height - 72.0 / 25.4
+                let grid = layout.grids[index]
+                let left = grid.left
+                let top = grid.top
                 let rows = Int(ceil(Double(placements.count) / Double(layout.columns)))
-                if layout.columns > 1 {
-                    for column in 1..<layout.columns {
+                if grid.columns > 1 {
+                    for column in 1..<grid.columns {
                         let x = left + Double(column) * layout.cellSize.width
                         context.move(to: CGPoint(x: x, y: top)); context.addLine(to: CGPoint(x: x, y: top - Double(rows) * layout.cellSize.height))
                     }
@@ -96,7 +137,7 @@ public enum PostagePDFService {
                 if rows > 1 {
                     for row in 1..<rows {
                         let y = top - Double(row) * layout.cellSize.height
-                        context.move(to: CGPoint(x: left, y: y)); context.addLine(to: CGPoint(x: left + Double(layout.columns) * layout.cellSize.width, y: y))
+                        context.move(to: CGPoint(x: left, y: y)); context.addLine(to: CGPoint(x: left + Double(grid.columns) * layout.cellSize.width, y: y))
                     }
                 }
                 context.strokePath()

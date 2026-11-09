@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import LabelCore
+import UniformTypeIdentifiers
 
 @MainActor
 final class AppStore: ObservableObject {
@@ -51,6 +52,7 @@ final class AppStore: ObservableObject {
     @Published var showEtsyImportError = false
     @Published var showBrowserOrderReview = false
     @Published var lastMessage: String?
+    @Published var historyExportError: String?
     @Published var selectedJobID: UUID?
     @Published var previewJob: PrintJob?
     @Published var selectedShipmentKind: ShipmentKind {
@@ -90,6 +92,18 @@ final class AppStore: ObservableObject {
     @Published var senderCountry: String {
         didSet { defaults.set(senderCountry, forKey: Keys.senderCountry) }
     }
+    @Published var addressLabelDesign: AddressLabelDesign {
+        didSet { defaults.set(try? JSONEncoder().encode(addressLabelDesign), forKey: Keys.addressLabelDesign) }
+    }
+    @Published var postageStampPlacement: PostageStampPlacement {
+        didSet { defaults.set(try? JSONEncoder().encode(postageStampPlacement), forKey: Keys.postageStampPlacement) }
+    }
+    @Published var combinedLabel: CombinedLabelSettings {
+        didSet { defaults.set(try? JSONEncoder().encode(combinedLabel), forKey: Keys.combinedLabel) }
+    }
+    @Published var continuousExtraFeedMM: Double {
+        didSet { defaults.set(continuousExtraFeedMM, forKey: Keys.continuousExtraFeedMM) }
+    }
     @Published var recipientName = ""
     @Published var recipientStreet1 = ""
     @Published var recipientStreet2 = ""
@@ -106,6 +120,7 @@ final class AppStore: ObservableObject {
     let jobs: PrintJobStore
     let postage: PostageStampStore
     let letterFlows: LetterFlowStore
+    let labelHistory: LabelHistoryStore
     let applicationDataLocation: ApplicationDataLocation
     lazy var letterFlowController = LetterFlowController(
         store: letterFlows, postage: postage,
@@ -131,6 +146,10 @@ final class AppStore: ObservableObject {
         static let senderPostalCode = "senderPostalCode"
         static let senderCity = "senderCity"
         static let senderCountry = "senderCountry"
+        static let addressLabelDesign = "addressLabelDesign"
+        static let postageStampPlacement = "postageStampPlacement"
+        static let combinedLabel = "combinedLabel"
+        static let continuousExtraFeedMM = "continuousExtraFeedMM"
     }
 
     init(defaults: UserDefaults = .standard) {
@@ -140,6 +159,12 @@ final class AppStore: ObservableObject {
         jobs = PrintJobStore(directory: root)
         postage = PostageStampStore(directory: root.appendingPathComponent("Briefmarken", isDirectory: true))
         letterFlows = LetterFlowStore(directory: root.appendingPathComponent("Briefversand", isDirectory: true))
+        let history = LabelHistoryStore(directory: root.appendingPathComponent("Labelverlauf", isDirectory: true))
+        history.adopt(jobs.jobs)
+        jobs.onStatusChange = { [weak history] id, status, errorMessage in
+            history?.updateStatus(id, status: status, errorMessage: errorMessage)
+        }
+        labelHistory = history
         guidedMode = defaults.object(forKey: "guidedMode") as? Bool ?? true
         letterWithPostage = defaults.bool(forKey: "letterWithPostage")
         selectedLetterPostageID = defaults.string(forKey: "selectedLetterPostageID") ?? ""
@@ -160,6 +185,13 @@ final class AppStore: ObservableObject {
         senderPostalCode = defaults.string(forKey: Keys.senderPostalCode) ?? ""
         senderCity = defaults.string(forKey: Keys.senderCity) ?? ""
         senderCountry = defaults.string(forKey: Keys.senderCountry) ?? "Deutschland"
+        addressLabelDesign = defaults.data(forKey: Keys.addressLabelDesign)
+            .flatMap { try? JSONDecoder().decode(AddressLabelDesign.self, from: $0) } ?? .standard
+        postageStampPlacement = defaults.data(forKey: Keys.postageStampPlacement)
+            .flatMap { try? JSONDecoder().decode(PostageStampPlacement.self, from: $0) } ?? .standard
+        combinedLabel = defaults.data(forKey: Keys.combinedLabel)
+            .flatMap { try? JSONDecoder().decode(CombinedLabelSettings.self, from: $0) } ?? .standard
+        continuousExtraFeedMM = defaults.double(forKey: Keys.continuousExtraFeedMM)
         lastMessage = applicationDataLocation.warning ?? (applicationDataLocation.migratedLegacyData
             ? "Die lokalen App-Daten wurden sicher in den neuen Label-Helper-Ordner verschoben."
             : nil)
@@ -193,11 +225,15 @@ final class AppStore: ObservableObject {
     }
 
     func printedLabelFormat(_ contentFormat: LabelFormat) -> LabelFormat {
-        labelStockMode == .continuous100 ? ContinuousLabelCutGuide.printFormat(for: contentFormat) : contentFormat
+        labelStockMode == .continuous100
+            ? ContinuousLabelCutGuide.printFormat(for: contentFormat, additionalFeedMM: continuousExtraFeedMM)
+            : contentFormat
     }
 
     func applyingMaterialCutGuide(to raster: LabelRaster) -> LabelRaster {
-        labelStockMode == .continuous100 ? ContinuousLabelCutGuide.applying(to: raster) : raster
+        labelStockMode == .continuous100
+            ? ContinuousLabelCutGuide.applying(to: raster, additionalFeedMM: continuousExtraFeedMM)
+            : raster
     }
 
     func renderLabel(_ job: PrintJob) throws -> LabelRaster {
@@ -206,7 +242,7 @@ final class AppStore: ObservableObject {
 
     var selectedLetterLabelFormat: LabelFormat {
         if labelStockMode == .continuous100 {
-            return EtsyAddressLabelWriter.continuousFormat(recipient: recipientAddress, sender: senderAddress)
+            return EtsyAddressLabelWriter.continuousFormat(recipient: recipientAddress, sender: senderAddress, design: addressLabelDesign)
         }
         if letterFormatID == "custom" {
             return .custom(widthMM: customWidthMM, heightMM: customHeightMM)
@@ -255,6 +291,7 @@ final class AppStore: ObservableObject {
                 // Imported artwork must not inherit a height measured from the address editor.
                 let importFormat = selectedLabelFormat.usesAutomaticHeight ? LabelFormat.continuousLetter100x55 : selectedLabelFormat
                 let job = try jobs.enqueue(url: url, labelFormat: importFormat)
+                recordImportedLabel(job)
                 selectedJobID = job.id
                 lastImportedJob = job
                 lastMessage = job.status == .printed
@@ -275,6 +312,22 @@ final class AppStore: ObservableObject {
                 self?.presentPrintPreview(lastImportedJob)
             }
         }
+    }
+
+    private func recordImportedLabel(_ job: PrintJob) {
+        guard !labelHistory.records.contains(where: { $0.id == job.id }) else { return }
+        let info = ParcelLabelParser.parse(url: job.sourceURL)
+        // An order left over from an earlier shipment must not attach to this label.
+        let sameRecipient = info?.recipientName.map { Self.normalizedName($0) == Self.normalizedName(recipientName) } ?? false
+        let orderID = sameRecipient ? activeBrowserOrder?.orderID ?? activeCSVOrderID : nil
+        if let record = LabelHistoryRecord(job: job, parcelInfo: info, orderID: orderID) {
+            labelHistory.add(record)
+        }
+    }
+
+    private static func normalizedName(_ name: String) -> String {
+        name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "de_DE"))
+            .filter { !$0.isWhitespace }
     }
 
     func handleIncomingURL(_ url: URL) {
@@ -440,7 +493,8 @@ final class AppStore: ObservableObject {
         guard !stamps.isEmpty else { lastMessage = "Bitte verfügbare Briefmarken auswählen."; return }
         do {
             let sheets = try PostagePDFService.writeSheets(stamps: stamps, format: format, cutGuides: cutGuides,
-                                                          directory: postage.directory, fitHeightToContent: labelStockMode == .continuous100)
+                                                          directory: postage.directory, fitHeightToContent: labelStockMode == .continuous100,
+                                                          placement: postageStampPlacement)
             let queued = try sheets.enumerated().map { index, sheet in
                 try jobs.enqueue(url: sheet.url, labelFormat: sheet.format,
                                  displayName: "Briefmarken · \(sheet.stampIDs.count) Marken · Etikett \(index + 1)/\(sheets.count)",
@@ -555,7 +609,8 @@ final class AppStore: ObservableObject {
             let url = try EtsyAddressLabelWriter.write(
                 recipient: recipientAddress,
                 sender: senderAddress,
-                format: selectedLabelFormat
+                format: selectedLabelFormat,
+                design: addressLabelDesign
             )
             let job = try jobs.enqueue(
                 url: url,
@@ -563,6 +618,10 @@ final class AppStore: ObservableObject {
                 displayName: "Brief · \(recipientAddress.name)",
                 sourceFingerprint: "manual-address:\(UUID().uuidString)"
             )
+            if let record = LabelHistoryRecord(job: job, parcelInfo: nil, recipient: recipientAddress,
+                                               orderID: activeBrowserOrder?.orderID ?? activeCSVOrderID) {
+                labelHistory.add(record)
+            }
             selectedJobID = job.id
             lastMessage = "Das Adressetikett für \(recipientAddress.name) ist druckbereit."
             presentPrintPreview(job)
@@ -601,9 +660,36 @@ final class AppStore: ObservableObject {
         previewJob = nil
     }
 
-    func printFromPreview(_ job: PrintJob) {
+    func printFromPreview(_ job: PrintJob, completion: @escaping (Result<Void, Error>) -> Void) {
+        printJob(job, completion: completion)
+    }
+
+    /// Ends the finished shipment: the next one must not start with the old address.
+    func returnToStart() {
+        guard !printInProgress, !printingPostageBatch, letterFlowController.activeFlowID == nil else { return }
         previewJob = nil
-        printJob(job)
+        letterFlowPreview = nil
+        activeBrowserOrder = nil
+        activeCSVOrderID = nil
+        applyRecipient(RecipientAddress(name: "", street1: "", postalCode: "", city: "", country: ""))
+        homeRequestSequence &+= 1
+    }
+
+    func exportHistory() {
+        let panel = NSSavePanel()
+        panel.title = "Verlauf exportieren"
+        panel.prompt = "Exportieren"
+        panel.nameFieldStringValue = ShippingHistoryExporter.defaultFilename()
+        panel.allowedContentTypes = [.commaSeparatedText]
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try ShippingHistoryExporter.csvData(flows: letterFlows.flows, records: labelHistory.records, jobs: jobs.jobs)
+                .write(to: url, options: .atomic)
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        } catch {
+            historyExportError = error.localizedDescription
+        }
     }
 
     private func applyRecipient(_ recipient: RecipientAddress) {
@@ -615,9 +701,42 @@ final class AppStore: ObservableObject {
         recipientCountry = recipient.country.isEmpty ? "Deutschland" : recipient.country
     }
 
+    var usesCombinedLetterLabel: Bool { letterWithPostage && combinedLabel.isEnabled }
+
+    func combinedLetterPDF(stamp: PostageStamp?, stampSize: CGSize, recipient: RecipientAddress,
+                           sender: SenderAddress) throws -> (data: Data, format: LabelFormat) {
+        let continuous = labelStockMode == .continuous100
+        return try EtsyAddressLabelWriter.makeCombinedPDF(
+            recipient: recipient, sender: sender, stamp: stamp, stampSize: stampSize,
+            format: continuous ? .shipping100x150 : selectedLetterLabelFormat, continuous: continuous,
+            settings: combinedLabel, placement: postageStampPlacement, design: addressLabelDesign
+        )
+    }
+
+    private func createCombinedLetterFlow(_ entry: PostageStampStore.Entry) throws {
+        let id = UUID()
+        let label = try combinedLetterPDF(stamp: entry.stamp, stampSize: entry.stamp.sourceRect.size,
+                                          recipient: recipientAddress, sender: senderAddress)
+        let url = postage.directory.appendingPathComponent("brief-kombiniert-\(id.uuidString).pdf")
+        try label.data.write(to: url, options: .atomic)
+        let job = try jobs.enqueue(url: url, labelFormat: label.format, displayName: "Brief mit Marke · \(recipientAddress.name)",
+                                   sourceFingerprint: "letter-combined:\(id)", postageStampIDs: [entry.id], letterFlowID: id)
+        // Starts at the stamp stage: the one label carries the paid stamp.
+        let flow = LetterShipmentFlow(id: id, recipientName: recipientAddress.name, orderID: activeBrowserOrder?.orderID ?? activeCSVOrderID,
+                                      stamp: entry.stamp, addressJob: job, stampJob: job, stage: .addressPrinted, isCombined: true)
+        try letterFlows.add(flow)
+        letterFlowPreview = flow
+        lastMessage = "Briefversand für \(recipientAddress.name) ist vorbereitet."
+    }
+
     private func createLetterFlow() {
         guard let entry = postage.entries.first(where: { $0.id == selectedLetterPostageID && $0.status == .available }) else {
             lastMessage = "Bitte eine verfügbare Briefmarke mit passendem Portowert wählen."
+            return
+        }
+        if combinedLabel.isEnabled {
+            do { try createCombinedLetterFlow(entry) }
+            catch { lastMessage = "Briefversand konnte nicht vorbereitet werden: \(error.localizedDescription)" }
             return
         }
         let format = selectedLetterLabelFormat
@@ -628,9 +747,10 @@ final class AppStore: ObservableObject {
         }
         do {
             let id = UUID()
-            let addressURL = try EtsyAddressLabelWriter.write(recipient: recipientAddress, sender: senderAddress, format: format)
+            let addressURL = try EtsyAddressLabelWriter.write(recipient: recipientAddress, sender: senderAddress, format: format, design: addressLabelDesign)
             let sheets = try PostagePDFService.writeSheets(stamps: [entry.stamp], format: stampFormat, cutGuides: false,
-                                                          directory: postage.directory, fitHeightToContent: labelStockMode == .continuous100)
+                                                          directory: postage.directory, fitHeightToContent: labelStockMode == .continuous100,
+                                                          placement: postageStampPlacement)
             guard let sheet = sheets.first else { throw PostagePDFError.cannotWrite }
             let addressJob = try jobs.enqueue(url: addressURL, labelFormat: format, displayName: "Briefadresse · \(recipientAddress.name)",
                                               sourceFingerprint: "letter-address:\(id)", letterFlowID: id)

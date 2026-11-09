@@ -34,10 +34,12 @@ struct LetterFlowView: View {
     var body: some View {
         HStack(spacing: 24) {
             VStack(spacing: 12) {
-                Picker("Vorschau", selection: $step) {
-                    Text("1 · Adresse").tag(0)
-                    Text("2 · Briefmarke").tag(1)
-                }.pickerStyle(.segmented)
+                if !flow.isCombined {
+                    Picker("Vorschau", selection: $step) {
+                        Text("1 · Adresse").tag(0)
+                        Text("2 · Briefmarke").tag(1)
+                    }.pickerStyle(.segmented)
+                }
                 LabelPaperCanvas(image: image, placeholder: previewError)
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
             VStack(alignment: .leading, spacing: 14) {
@@ -46,7 +48,9 @@ struct LetterFlowView: View {
                 Text("Briefversand").font(.title2.bold())
                 Text(flow.recipientName).font(.headline)
                 if let order = flow.orderID { Text("Etsy #\(order)").foregroundStyle(.secondary) }
-                Text("Adresse + \(flow.stamp.amount) € Briefmarke\nAdresse: \(appStore.printedLabelFormat(flow.addressJob.resolvedLabelFormat).sizeDescription)\nBriefmarke: \(appStore.printedLabelFormat(flow.stampJob.resolvedLabelFormat).sizeDescription)")
+                Text(flow.isCombined
+                     ? "Adresse + \(flow.stamp.amount) € Briefmarke auf einem Etikett\nEtikett: \(appStore.printedLabelFormat(flow.stampJob.resolvedLabelFormat).sizeDescription)"
+                     : "Adresse + \(flow.stamp.amount) € Briefmarke\nAdresse: \(appStore.printedLabelFormat(flow.addressJob.resolvedLabelFormat).sizeDescription)\nBriefmarke: \(appStore.printedLabelFormat(flow.stampJob.resolvedLabelFormat).sizeDescription)")
                     .font(.callout).foregroundStyle(.secondary)
                 if appStore.labelStockMode == .continuous100 {
                     Text("Mit Schnittlinie unter jedem Etikett · 2 mm Zugabe").font(.callout)
@@ -77,15 +81,17 @@ struct LetterFlowView: View {
                     }
                 }
                 if flow.stage == .completed {
-                    Text("Beide Etiketten sind bestätigt. Die Sendungsnummer ist diesem Brief zugeordnet.")
+                    Text(flow.isCombined ? "Das Etikett ist bestätigt. Die Sendungsnummer ist diesem Brief zugeordnet." : "Beide Etiketten sind bestätigt. Die Sendungsnummer ist diesem Brief zugeordnet.")
                         .font(.callout).foregroundStyle(.secondary)
                     Button(copied ? "Sendungsnummer kopiert" : "Sendungsnummer kopieren") {
                         copied = copyTrackingNumbers([flow.stamp])
                     }
                     Divider()
-                    Picker("Erneut drucken", selection: $reprintSelection) {
-                        ForEach(LetterShipmentFlow.ReprintSelection.allCases) { selection in
-                            Text(selection.title).tag(selection)
+                    if !flow.isCombined {
+                        Picker("Erneut drucken", selection: $reprintSelection) {
+                            ForEach(LetterShipmentFlow.ReprintSelection.allCases) { selection in
+                                Text(selection.title).tag(selection)
+                            }
                         }
                     }
                     if let reason = controller.reprintUnavailableReason(flow.id, selection: reprintSelection) {
@@ -99,6 +105,10 @@ struct LetterFlowView: View {
                }.frame(maxWidth: .infinity, alignment: .leading)
               }
                 actions
+                if flow.stage == .completed {
+                    Button("Zurück zum Anfang", action: appStore.returnToStart)
+                        .buttonStyle(.borderedProminent).disabled(active)
+                }
                 Button(flow.stage == .completed ? "Fertig" : "Schließen", role: .cancel) { appStore.letterFlowPreview = nil }
                     .disabled(active)
             }.frame(width: 290)
@@ -107,6 +117,7 @@ struct LetterFlowView: View {
         .interactiveDismissDisabled(active)
         .onAppear {
             if [.addressPrinted, .printingStamp, .stampCheck].contains(flow.stage) { step = 1 }
+            if flow.isCombined { reprintSelection = .stamp }
             render()
         }
         .onChange(of: step) { _, _ in render() }
@@ -116,7 +127,7 @@ struct LetterFlowView: View {
             if stage == .printingAddress { step = 0 }
             if stage == .printingStamp { step = 1 }
             if stage == .completed {
-                reprintSelection = .address
+                reprintSelection = flow.isCombined ? .stamp : .address
                 step = 0
                 if autoCopy && flow.needsPostagePrint { copied = copyTrackingNumbers([flow.stamp]) }
             }
@@ -127,16 +138,23 @@ struct LetterFlowView: View {
         } message: { Text("Bitte nur fortsetzen, wenn der vorherige Briefmarkenausdruck unbrauchbar ist. Die Adresse wird dabei nicht erneut gedruckt.") }
         .alert("Briefmarke erneut drucken?", isPresented: $confirmReprint) {
             Button("Abbrechen", role: .cancel) {}
-            Button(reprintSelection.actionTitle) { controller.reprint(flow.id, selection: reprintSelection) }
+            Button(reprintTitle) { controller.reprint(flow.id, selection: reprintSelection) }
         } message: {
             Text("Nur fortsetzen, wenn der alte Briefmarkenausdruck unbrauchbar ist und vernichtet wurde. Die Marke darf nur für diesen einen Brief verwendet werden, nicht für eine weitere Sendung.")
         }
     }
 
+    private var reprintTitle: String { flow.isCombined ? "Etikett erneut drucken" : reprintSelection.actionTitle }
+
+    private var startTitle: String {
+        if flow.isCombined { return flow.reprintSelection == nil ? "Etikett drucken" : "Etikett erneut drucken" }
+        return flow.stage == .ready ? (flow.reprintSelection?.actionTitle ?? "Adresse + Briefmarke drucken") : "Nur Briefmarke drucken"
+    }
+
     @ViewBuilder private var actions: some View {
         switch flow.stage {
         case .ready, .addressPrinted:
-            Button(flow.stage == .ready ? (flow.reprintSelection?.actionTitle ?? "Adresse + Briefmarke drucken") : "Nur Briefmarke drucken") { controller.start(flow.id) }
+            Button(startTitle) { controller.start(flow.id) }
                 .buttonStyle(.borderedProminent).disabled(!canStart)
         case .addressCheck:
             Text("Ist die Adresse bereits korrekt gedruckt?").font(.callout)
@@ -150,13 +168,13 @@ struct LetterFlowView: View {
                 .disabled(controller.activeFlowID != nil)
             Button("Marke ist unbrauchbar …") { confirmStampRetry = true }.disabled(controller.activeFlowID != nil)
         case .completed:
-            Button(reprintSelection.actionTitle) {
+            Button(reprintTitle) {
                 if reprintSelection == .address {
                     controller.reprint(flow.id, selection: .address)
                 } else {
                     confirmReprint = true
                 }
-            }.buttonStyle(.borderedProminent).disabled(!canReprint)
+            }.disabled(!canReprint)
         case .printingAddress, .printingStamp:
             EmptyView()
         }
@@ -167,33 +185,5 @@ struct LetterFlowView: View {
         let job = step == 0 ? flow.addressJob : flow.stampJob
         do { image = LabelPreviewRenderer.image(from: try appStore.renderLabel(job)) }
         catch { previewError = error.localizedDescription }
-    }
-}
-
-struct LetterFlowHistoryView: View {
-    @ObservedObject var appStore: AppStore
-    @ObservedObject var store: LetterFlowStore
-
-    var body: some View {
-        Group {
-            if store.flows.isEmpty {
-                ContentUnavailableView("Noch kein Briefablauf", systemImage: "envelope",
-                    description: Text(store.storageError ?? "Unter Versenden einen Brief mit Adresse und Briefmarke vorbereiten."))
-            } else {
-                List(store.flows) { flow in
-                    HStack(spacing: 20) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(flow.recipientName).font(.headline)
-                            if let order = flow.orderID { Text("Etsy #\(order)").font(.caption).foregroundStyle(.secondary) }
-                            Text(flow.statusTitle).font(.callout).foregroundStyle(flow.stage == .completed ? .green : .secondary)
-                            Text(flow.createdAt.formatted(.dateTime.day().month().hour().minute())).font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        PostageTrackingNumberView(stamp: flow.stamp)
-                        Button(flow.stage == .completed ? "Erneut drucken …" : "Öffnen / fortsetzen") { appStore.letterFlowPreview = flow }
-                    }.padding(.vertical, 6)
-                }
-            }
-        }.navigationTitle("Briefverlauf")
     }
 }

@@ -3,18 +3,21 @@ import Foundation
 /// A separate cut strip keeps address text and paid barcodes untouched.
 public enum ContinuousLabelCutGuide {
     public static let extraLengthMM = 2.0
+    public static let additionalFeedRangeMM = 0.0...20.0
 
-    public static func printFormat(for contentFormat: LabelFormat) -> LabelFormat {
+    /// `additionalFeedMM` is blank paper after the cut line. It leaves the cut
+    /// edge further out of the printer before the next job pulls the paper back.
+    public static func printFormat(for contentFormat: LabelFormat, additionalFeedMM: Double = 0) -> LabelFormat {
         LabelFormat(id: contentFormat.id + "-cut-guide", name: contentFormat.name,
-                    widthMM: contentFormat.widthMM, heightMM: contentFormat.heightMM + extraLengthMM)
+                    widthMM: contentFormat.widthMM, heightMM: contentFormat.heightMM + extraLengthMM + additionalFeedMM)
     }
 
-    public static func applying(to raster: LabelRaster) -> LabelRaster {
+    public static func applying(to raster: LabelRaster, additionalFeedMM: Double = 0) -> LabelRaster {
         guard raster.width > 0, raster.height > 0,
               raster.bytesPerRow == (raster.width + 7) / 8,
               raster.bitmap.count == raster.bytesPerRow * raster.height else { return raster }
         let dotsPerMM = Int(LabelFormat.dotsPerMillimeter)
-        let extraRows = Int(extraLengthMM * LabelFormat.dotsPerMillimeter)
+        let extraRows = Int((extraLengthMM + additionalFeedMM) * LabelFormat.dotsPerMillimeter)
         let margin = 2 * dotsPerMM
         let dash = 2 * dotsPerMM
         let gap = dotsPerMM

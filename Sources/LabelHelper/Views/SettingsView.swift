@@ -12,6 +12,16 @@ struct SettingsView: View {
                     Label("Allgemein", systemImage: "slider.horizontal.3")
                 }
 
+            LabelDesignerView(appStore: appStore)
+                .tabItem {
+                    Label("Etikett", systemImage: "rectangle.and.pencil.and.ellipsis")
+                }
+
+            QueueView(appStore: appStore, jobStore: appStore.jobs)
+                .tabItem {
+                    Label("Druckaufträge", systemImage: "list.bullet.rectangle")
+                }
+
             BluetoothDiagnosticsView(bluetooth: appStore.bluetooth)
                 .tabItem {
                     Label("Bluetooth", systemImage: "wave.3.right.circle")
@@ -56,6 +66,13 @@ private struct GeneralSettingsView: View {
             Section("Etikettenmaterial") {
                 LabelFormatControls(appStore: appStore, showHeading: false)
                 Text("Paketlabel verwenden 100 × 150 mm.").font(.callout)
+                if appStore.labelStockMode == .continuous100 {
+                    Stepper("Papierzugabe nach der Schnittlinie: \(Int(appStore.continuousExtraFeedMM)) mm",
+                            value: $appStore.continuousExtraFeedMM,
+                            in: ContinuousLabelCutGuide.additionalFeedRangeMM, step: 2)
+                    Text("Falls der Drucker das Papier beim Start zu weit einzieht: Mit 8 bis 12 mm bleibt die Schnittkante weiter vorn. Das kostet pro Etikett entsprechend mehr Papier.")
+                        .font(.callout)
+                }
             }
             Section {
                 DisclosureGroup("Erweiterte Druckeinstellungen") {
@@ -81,7 +98,7 @@ private struct GeneralSettingsView: View {
                     Button("Datensicherung wiederherstellen …", action: chooseBackupToRestore)
                 }
                 .disabled(!appStore.canManageApplicationData)
-                Text("Die Sicherung enthält Druckaufträge, Adressetiketten, Briefmarkenbestand, Briefverlauf und die vorbereitete Browser-Erweiterung.")
+                Text("Die Sicherung enthält Druckaufträge, Adressetiketten, Briefmarkenbestand, Label-Verlauf und die vorbereitete Browser-Erweiterung.")
                     .font(.callout)
                 if !appStore.canManageApplicationData {
                     Label("Datensicherungen sind während eines Druckablaufs gesperrt.", systemImage: "printer")

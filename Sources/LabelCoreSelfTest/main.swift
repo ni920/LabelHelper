@@ -254,6 +254,9 @@ do {
     try runBrowserExtensionSetupTests()
     try runPostageTests()
     try runApplicationDataTests()
+    try runHistoryExportTests()
+    try runStampPlacementTests()
+    try runCombinedLabelTests()
     print("LabelCoreSelfTest: all checks passed")
 } catch {
     fputs("LabelCoreSelfTest failed: \(error)\n", stderr)

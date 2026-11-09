@@ -229,3 +229,54 @@ func runPostageTests() throws {
     }
     print("Postage tests passed: packing, original size, PDF composition, deduplication, print recovery and history persistence")
 }
+
+func runStampPlacementTests() throws {
+    let size = CGSize(width: 116, height: 68)
+    let margin = 72.0 / 25.4
+    let format = LabelFormat.shipping100x150
+    let paper = CGSize(width: format.widthMM * margin, height: format.heightMM * margin)
+    func rect(_ horizontal: PostageStampPlacement.Horizontal, _ vertical: AddressLabelDesign.VerticalPlacement) -> CGRect {
+        var placement = PostageStampPlacement.standard
+        placement.horizontal = horizontal
+        placement.vertical = vertical
+        return PostageSheetLayout(stampSizes: [size], format: format, placement: placement).sheets[0][0].rect
+    }
+    func close(_ a: Double, _ b: Double) -> Bool { abs(a - b) < 0.01 }
+
+    let standard = PostageSheetLayout(stampSizes: [size], format: format)
+    let oldLeft = (paper.width - Double(standard.columns) * size.width) / 2
+    try require(close(standard.sheets[0][0].rect.minX, oldLeft) && close(standard.sheets[0][0].rect.maxY, paper.height - margin),
+                "The standard stamp position changed")
+    try require(close(rect(.leading, .top).minX, margin), "Left stamp is not at the margin")
+    try require(close(rect(.center, .top).midX, paper.width / 2), "Centered stamp is off-center")
+    try require(close(rect(.trailing, .top).maxX, paper.width - margin), "Right stamp is not at the margin")
+    try require(close(rect(.center, .center).midY, paper.height / 2), "Vertically centered stamp is off-center")
+    try require(close(rect(.center, .bottom).minY, margin), "Bottom stamp is not at the margin")
+
+    var trailingBottom = PostageStampPlacement.standard
+    trailingBottom.horizontal = .trailing
+    trailingBottom.vertical = .bottom
+    let sizes = Array(repeating: size, count: 3)
+    let multiple = PostageSheetLayout(stampSizes: sizes, format: format, placement: trailingBottom)
+    let bounds = CGRect(origin: .zero, size: paper)
+    for item in multiple.sheets[0] {
+        try require(bounds.contains(item.rect) && item.rect.size == size, "Placed stamp left the label or changed size")
+        for other in multiple.sheets[0] where other.stampIndex > item.stampIndex {
+            try require(!item.rect.intersects(other.rect), "Placed stamps overlap")
+        }
+    }
+    let grid = multiple.grids[0]
+    try require(grid.columns == multiple.columns && close(grid.left + Double(grid.columns) * size.width, paper.width - margin),
+                "Cut guides do not follow the placed stamps")
+
+    let continuous = PostageSheetLayout(stampSizes: [size], format: format, fitHeightToContent: true, placement: trailingBottom)
+    try require(continuous.sheetFormats[0].heightMM < 30, "Stamp placement must not lengthen a continuous label")
+    try require(CGRect(x: 0, y: 0, width: paper.width, height: continuous.sheetFormats[0].heightMM * margin).contains(continuous.sheets[0][0].rect),
+                "Stamp left the continuous label")
+
+    var saved = PostageStampPlacement.standard
+    saved.horizontal = .center
+    let restored = try JSONDecoder().decode(PostageStampPlacement.self, from: JSONEncoder().encode(saved))
+    try require(restored == saved, "Saved stamp placement was lost")
+    print("Stamp placement tests passed: standard position, alignment, multiple stamps, cut guides and continuous labels")
+}

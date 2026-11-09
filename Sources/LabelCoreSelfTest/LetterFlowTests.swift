@@ -64,6 +64,7 @@ private final class FlowHarness {
 func runLetterFlowTests(fixture: URL, directory: URL) throws {
     try MainActor.assumeIsolated {
         try runLetterReprintTests(fixture: fixture, directory: directory.appendingPathComponent("reprints"))
+        try runCombinedFlowTests(fixture: fixture, directory: directory.appendingPathComponent("combined"))
         let success = try FlowHarness(fixture: fixture, directory: directory.appendingPathComponent("success"))
         let flow = try success.makeFlow()
         success.controller.start(flow.id)
@@ -295,4 +296,50 @@ private func runLetterReprintTests(fixture: URL, directory: URL) throws {
         try require(ledgerFailure.requested.isEmpty && ledgerFailure.postage.storageError != nil,
                     "Reprint started before saving its exclusive postage reservation")
         print("Letter reprint tests passed: all selections, ownership, history, duplicate clicks, recovery, offline and persistence guards")
+}
+
+@MainActor
+private func runCombinedFlowTests(fixture: URL, directory: URL) throws {
+    let harness = try FlowHarness(fixture: fixture, directory: directory)
+    func makeFlow() throws -> LetterShipmentFlow {
+        let stamp = harness.postage.entries.first { $0.status == .available }!.stamp
+        let id = UUID()
+        let job = PrintJob(sourceURL: fixture, sourceFingerprint: "combined-\(id)", labelFormat: .product100x50,
+                           postageStampIDs: [stamp.id], letterFlowID: id)
+        let flow = LetterShipmentFlow(id: id, recipientName: "Testempfänger", orderID: nil, stamp: stamp,
+                                      addressJob: job, stampJob: job, stage: .addressPrinted, isCombined: true)
+        try harness.store.add(flow)
+        return flow
+    }
+
+    let flow = try makeFlow()
+    try require(flow.statusTitle == "Bereit", "A combined label must not claim a printed address")
+    harness.controller.start(flow.id)
+    harness.controller.start(flow.id)
+    try require(harness.requested == [flow.stampJob.id], "Combined label must print exactly one job")
+    try require(!harness.postage.canPrint([flow.stamp.id]), "Combined label did not reserve its stamp")
+    try harness.finish(.success(()))
+    try require(harness.store.flow(flow.id)?.stage == .completed && harness.pending.isEmpty, "Combined label did not complete after one print")
+    try require(harness.postage.entries.first { $0.id == flow.stamp.id }?.status == .printed, "Combined label did not use up its stamp")
+
+    harness.requested = []
+    harness.controller.reprint(flow.id, selection: .stamp)
+    try require(harness.requested == [flow.stampJob.id], "Combined reprint must print the one label")
+    try harness.finish(.success(()))
+    try require(harness.store.flow(flow.id)?.stage == .completed, "Combined reprint did not complete")
+
+    let failing = try makeFlow()
+    harness.requested = []
+    harness.controller.start(failing.id)
+    try harness.finish(.failure(NSError(domain: "Test", code: 1)))
+    try require(harness.store.flow(failing.id)?.stage == .stampCheck, "A failed combined print must require a review of the stamp")
+
+    let encoded = try JSONEncoder().encode(flow)
+    let restored = try JSONDecoder().decode(LetterShipmentFlow.self, from: encoded)
+    try require(restored.isCombined, "Combined flag was lost on restart")
+    let normal = try harness.makeFlow()
+    var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(normal)) as! [String: Any]
+    json.removeValue(forKey: "combined")
+    let legacy = try JSONDecoder().decode(LetterShipmentFlow.self, from: JSONSerialization.data(withJSONObject: json))
+    try require(!legacy.isCombined, "Existing letter flows must stay two labels")
 }

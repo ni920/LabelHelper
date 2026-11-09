@@ -128,7 +128,7 @@ ab **1.1.49**. Bei älterer Firmware bleibt der macOS-Systemdruck über USB die
 Alternative. Die normale FEED-Kalibrierung für Lückenetiketten darf nicht mit
 einer unmarkierten Endlosrolle gestartet werden.
 
-### Briefmarken und Briefverlauf
+### Briefmarken und Label-Verlauf
 
 Mehrseitige Internetmarken-PDFs der Deutschen Post können als Bündel importiert
 werden. Label Helper:
@@ -140,10 +140,19 @@ werden. Label Helper:
 - verwaltet verfügbare, gedruckte und nach Fehldruck freigegebene Marken.
 
 Bei **Adresse + Briefmarke** druckt die App zuerst die Adresse und danach die
-reservierte Marke. Der Briefverlauf speichert Empfänger, Etsy-Bestellnummer,
+reservierte Marke. Der Label-Verlauf speichert Empfänger, Etsy-Bestellnummer,
 Marke, Sendungsnummer und Druckfortschritt. Abgeschlossene Briefe können mit
 **Nur Adresse**, **Nur Briefmarke** oder **Adresse und Briefmarke** erneut
 geöffnet werden.
+
+Paketlabel erscheinen ebenfalls im **Label-Verlauf**. Aus DHL-PDFs werden
+Empfänger, Adresse, Produkt, Sendungsnummer und Warenkorb-Nr. automatisch
+ausgelesen. Über **Verlauf exportieren …** lässt sich der gesamte Verlauf als
+CSV-Datei für Excel oder Numbers speichern. Die Druckaufträge liegen unter
+**Einstellungen → Druckaufträge**, das Aussehen neuer Adressetiketten lässt sich
+und die Position der Briefmarke unter **Einstellungen → Etikett** mit
+Live-Vorschau anpassen. Dort lassen sich Adresse und Briefmarke auch auf einem
+gemeinsamen Etikett drucken, sodass die Marke nicht ausgeschnitten werden muss.
 
 > [!WARNING]
 > Eine Briefmarke darf nur für eine Sendung verwendet werden. Vor einem

@@ -366,6 +366,9 @@ final class BluetoothPrinterService: NSObject, ObservableObject {
         // force PAPERTYPESET for this auto-learning model before every job.
         // Sending that command here can start an unwanted calibration/feed.
         diagnostics.append("Etikettentyp: \(paperType.localizedName); Firmware \(firmwareVersion ?? "unbekannt"); feste Rasterlänge, keine zusätzliche Kalibrierung")
+        if let latestPaperType, latestPaperType != paperType {
+            diagnostics.append("Achtung: Der Drucker meldete zuletzt \(latestPaperType.localizedName), in der App ist \(paperType.localizedName) gewählt")
+        }
         startPreparedPrint(printTransfer)
     }
 
