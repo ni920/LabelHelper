@@ -120,7 +120,8 @@ struct PrintLayoutTests {
                 let raster = try LabelRenderer.render(pdfData: label.data, format: label.format)
                 try checkPrintGeometry(raster, format: label.format)
                 let ink = raster.bitmap.reduce(0) { $0 + $1.nonzeroBitCount }
-                let stampInk = Int(112 * 8 * 25.4 / 72 * 64 * 8 * 25.4 / 72)
+                let dotsPerPoint: Double = LabelFormat.dotsPerMillimeter * 25.4 / 72
+                let stampInk = Int((112 * dotsPerPoint) * (64 * dotsPerPoint))
                 try require(ink > stampInk * 9 / 10, "Combined label lost the stamp: \(ink) of \(stampInk) dots")
             }
         }
