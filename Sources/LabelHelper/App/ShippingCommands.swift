@@ -25,14 +25,13 @@ struct ShippingCommands: Commands {
         CommandMenu("Versand") {
             Toggle("Geführter Modus", isOn: $appStore.guidedMode)
             Button("Aufgabe auswählen") {
-                appStore.guidedMode = true
-                appStore.homeRequestSequence &+= 1
+                appStore.showShippingHome()
             }.keyboardShortcut("h", modifiers: [.command, .shift])
             Divider()
             Button("Zurück") { navigation?.back() }
                 .disabled(navigation?.canGoBack != true)
                 .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
-            Button("Weiter / Vorschau öffnen") { navigation?.advance() }
+            Button("Weiter") { navigation?.advance() }
                 .disabled(navigation?.canAdvance != true)
                 .keyboardShortcut(.return, modifiers: .command)
         }

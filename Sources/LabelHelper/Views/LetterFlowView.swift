@@ -11,7 +11,6 @@ struct LetterFlowView: View {
     @State private var step = 0
     @State private var image: NSImage?
     @State private var previewError: String?
-    @State private var copied = false
     @State private var confirmStampRetry = false
     @State private var reprintSelection: LetterShipmentFlow.ReprintSelection = .address
     @State private var confirmReprint = false
@@ -83,9 +82,8 @@ struct LetterFlowView: View {
                 if flow.stage == .completed {
                     Text(flow.isCombined ? "Das Etikett ist bestätigt. Die Sendungsnummer ist diesem Brief zugeordnet." : "Beide Etiketten sind bestätigt. Die Sendungsnummer ist diesem Brief zugeordnet.")
                         .font(.callout).foregroundStyle(.secondary)
-                    Button(copied ? "Sendungsnummer kopiert" : "Sendungsnummer kopieren") {
-                        copied = copyTrackingNumbers([flow.stamp])
-                    }
+                    ShipmentCompletionView(appStore: appStore, status: "Briefversand abgeschlossen.",
+                                           trackingNumbers: [flow.stamp.trackingNumber].compactMap { $0 })
                     Divider()
                     if !flow.isCombined {
                         Picker("Erneut drucken", selection: $reprintSelection) {
@@ -105,10 +103,6 @@ struct LetterFlowView: View {
                }.frame(maxWidth: .infinity, alignment: .leading)
               }
                 actions
-                if flow.stage == .completed {
-                    Button("Zurück zum Anfang", action: appStore.returnToStart)
-                        .buttonStyle(.borderedProminent).disabled(active)
-                }
                 Button(flow.stage == .completed ? "Fertig" : "Schließen", role: .cancel) { appStore.letterFlowPreview = nil }
                     .disabled(active)
             }.frame(width: 290)
@@ -129,7 +123,7 @@ struct LetterFlowView: View {
             if stage == .completed {
                 reprintSelection = flow.isCombined ? .stamp : .address
                 step = 0
-                if autoCopy && flow.needsPostagePrint { copied = copyTrackingNumbers([flow.stamp]) }
+                if autoCopy && flow.needsPostagePrint { _ = copyTrackingNumbers([flow.stamp]) }
             }
         }
         .alert("Nur die Briefmarke erneut drucken?", isPresented: $confirmStampRetry) {

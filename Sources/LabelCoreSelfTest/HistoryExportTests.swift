@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreText
 import Foundation
 import LabelCore
 
@@ -85,6 +86,24 @@ private func runParcelHistoryTests(source: URL, utc: TimeZone) throws {
                 "Second address block on the label was not used")
     try require(ParcelLabelParser.parse(url: URL(fileURLWithPath: "/nonexistent/label.pdf")) == nil, "Missing PDF must not yield data")
 
+    let labelPDF = try parcelFixture([
+        "DHL Paket", "Empfaenger: Alex Muster", "Teststrasse 42", "54321 Musterstadt",
+        "Produkt: DHL Paket", "Sendungsnummer: 123456789012"
+    ])
+    // The fixture uses the label's actual German field spelling.
+    let recognizedPDF = try parcelFixture([
+        "DHL Paket", "Empfänger: Alex Muster", "Teststraße 42", "54321 Musterstadt",
+        "Produkt: DHL Paket", "Sendungsnummer: 123456789012"
+    ])
+    let recognized = ParcelLabelParser.recognizeShippingLabel(data: recognizedPDF)
+    try require(recognized?.recipientName == "Alex Muster" && recognized?.trackingNumber == "123456789012",
+                "Dedicated DHL import did not retain recipient and tracking from a recognized PDF")
+    let unknownPDF = try parcelFixture(["Allgemeines Dokument", "Musterstraße 42", "54321 Musterstadt"])
+    try require(ParcelLabelParser.recognizeShippingLabel(data: unknownPDF) == nil,
+                "Dedicated DHL import accepted an unrelated PDF")
+    try require(ParcelLabelParser.recognizeShippingLabel(data: labelPDF) == nil,
+                "A tracking line alone must not establish a shipping address")
+
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("label-history-\(UUID())", isDirectory: true)
     defer { try? FileManager.default.removeItem(at: directory) }
     let parcel = PrintJob(sourceURL: source, sourceFingerprint: "parcel|800x1200", createdAt: Date(timeIntervalSince1970: 5_000),
@@ -126,4 +145,25 @@ private func runParcelHistoryTests(source: URL, utc: TimeZone) throws {
     let brokenAfterAdd = try Data(contentsOf: brokenFile)
     try require(broken.storageError != nil && brokenAfterAdd == Data("kaputt".utf8), "An unreadable history file must never be overwritten")
     print("Label history tests passed: DHL parsing, persistence without print jobs, export and damaged files")
+}
+
+private func parcelFixture(_ lines: [String]) throws -> Data {
+    let pdf = NSMutableData()
+    var bounds = CGRect(x: 0, y: 0, width: 283, height: 425)
+    guard let consumer = CGDataConsumer(data: pdf as CFMutableData),
+          let context = CGContext(consumer: consumer, mediaBox: &bounds, nil) else {
+        throw SelfTestFailure.assertion("Could not build synthetic parcel PDF")
+    }
+    let font = CTFontCreateWithName("Helvetica" as CFString, 10, nil)
+    context.beginPDFPage(nil)
+    for (index, text) in lines.enumerated() {
+        let line = NSAttributedString(string: text, attributes: [
+            NSAttributedString.Key(kCTFontAttributeName as String): font
+        ])
+        context.textPosition = CGPoint(x: 20, y: 390 - index * 18)
+        CTLineDraw(CTLineCreateWithAttributedString(line), context)
+    }
+    context.endPDFPage()
+    context.closePDF()
+    return pdf as Data
 }

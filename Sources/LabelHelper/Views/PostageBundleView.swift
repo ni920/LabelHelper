@@ -421,18 +421,35 @@ struct PostagePrintPreviewView: View {
                     if !Task.isCancelled { copiedSheet = false }
                 }
                 if let error { Text(error).foregroundStyle(.red) }
-                PostageMaterialRequirement(appStore: appStore, bluetooth: bluetooth)
-                if !bluetooth.connectionState.isReady { PrinterConnectionView(appStore: appStore, bluetooth: bluetooth) }
-                Spacer()
-                Button("Schließen", role: .cancel) { appStore.postagePreview = nil }
-                Button(batch.jobs.count == 1 ? "Etikett drucken" : "Alle \(batch.jobs.count) Etiketten drucken") {
-                    appStore.printPostageSheets(batch)
+                if appStore.finishedPostageBatchID == batch.id {
+                    let printedIDs = batch.jobs.filter { job in
+                        appStore.jobs.jobs.first { $0.id == job.id }?.status == .printed
+                    }.flatMap { $0.postageStampIDs ?? [] }
+                    ShipmentCompletionView(appStore: appStore, status: appStore.postageBatchProgress,
+                        trackingNumbers: printedIDs.compactMap(PostageStamp.trackingNumber(forID:)),
+                        symbol: printedIDs.count == batch.jobs.flatMap { $0.postageStampIDs ?? [] }.count
+                            ? "checkmark.circle.fill" : "info.circle")
+                } else if appStore.printingPostageBatch {
+                    ProgressView(appStore.postageBatchProgress)
+                    Button("Nach diesem Etikett stoppen", action: appStore.stopAfterCurrentPostageSheet)
+                } else {
+                    PostageMaterialRequirement(appStore: appStore, bluetooth: bluetooth)
+                    if !bluetooth.connectionState.isReady {
+                        PrinterConnectionView(appStore: appStore, bluetooth: bluetooth)
+                    }
+                    Button(batch.jobs.count == 1 ? "Etikett drucken" : "Alle \(batch.jobs.count) Etiketten drucken") {
+                        appStore.printPostageSheets(batch)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(image == nil || error != nil || !bluetooth.connectionState.isReady
+                              || !appStore.canPrintSelectedMaterialOverBluetooth || appStore.shippingBusy)
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(image == nil || error != nil || !bluetooth.connectionState.isReady || !appStore.canPrintSelectedMaterialOverBluetooth || appStore.printInProgress)
+                Button("Schließen", role: .cancel) { appStore.postagePreview = nil }
+                    .disabled(appStore.printingPostageBatch)
             }.frame(width: 270)
         }
         .padding(24).frame(minWidth: 800, minHeight: 600)
+        .interactiveDismissDisabled(appStore.printingPostageBatch)
         .onAppear(perform: render)
         .onChange(of: index) { _, _ in copiedSheet = false; render() }
         .onChange(of: appStore.labelStockMode) { _, _ in render() }

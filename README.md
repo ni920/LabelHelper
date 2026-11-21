@@ -99,16 +99,25 @@ verbindet ihn nach Neustarts oder kurzen Unterbrechungen automatisch wieder.
 ## Versand vorbereiten
 
 Beim ersten Start ist der geführte Modus aktiv. Unter **Versenden** lässt sich
-jederzeit zwischen **Geführt** und **Direkt** wechseln.
+jederzeit zwischen **Geführt** und **Direkt** wechseln. Beide Ansichten bearbeiten
+denselben Entwurf.
+
+Wähle unter **Neuer Versand** eine Aufgabe, um ohne alte Empfängerdaten, Porto
+oder Paketdatei zu beginnen. Mit **Entwurf fortsetzen** öffnest du den lokal
+gespeicherten Entwurf auch nach einem Neustart. Dein Absender und das zuletzt
+gewählte Material stehen für den nächsten Versand wieder bereit.
 
 | Aufgabe | Ablauf |
 | --- | --- |
-| **Brief** | Empfänger eingeben oder aus Etsy übernehmen, optional eine Internetmarke wählen, Vorschau prüfen und drucken |
-| **Paket** | Gekauftes DHL-PDF importieren, den automatisch erkannten 100 × 150-mm-Ausschnitt prüfen und drucken |
+| **Brief** | **Adresse → Druck prüfen**. Im zweiten Schritt Frankierung, Material und die Vorschau der einzelnen oder gemeinsamen Etiketten kontrollieren. |
+| **Paket** | DHL-PDF importieren. Empfänger, Sendungsnummer und den 100 × 150-mm-Ausschnitt gemeinsam prüfen. Bei fehlender Erkennung **Andere Datei wählen**. |
 | **Briefmarken** | PDF-Bündel importieren, verfügbare Marken auswählen, platzsparendes Layout prüfen und drucken |
 | **Eigene Datei** | PDF, PNG oder JPEG importieren und proportional in das gewählte Format einpassen |
 
-Gedruckt wird erst nach der Vorschau. Bereits vorbereitete Aufträge behalten ihr
+Gedruckt wird über die Druckaktion in der Vorschau. Bei einem fehlenden
+Drucker kannst du ihn dort verbinden. Nach dem Druck sind die verfügbaren
+Sendungsnummern, **Neuer Versand** und der **Label-Verlauf** direkt erreichbar.
+Bereits vorbereitete Aufträge behalten ihr
 gespeichertes Format, auch wenn die Voreinstellung später geändert wird.
 
 ### Etiketten und Endlosrollen
@@ -145,7 +154,7 @@ Marke, Sendungsnummer und Druckfortschritt. Abgeschlossene Briefe können mit
 **Nur Adresse**, **Nur Briefmarke** oder **Adresse und Briefmarke** erneut
 geöffnet werden.
 
-Paketlabel erscheinen ebenfalls im **Label-Verlauf**. Aus DHL-PDFs werden
+Paketlabel erscheinen ebenfalls im **Label-Verlauf**. Solange die zugehörigen Druckdateien vorhanden sind, lassen sich vorbereitete Aufträge dort wieder öffnen. Aus DHL-PDFs werden
 Empfänger, Adresse, Produkt, Sendungsnummer und Warenkorb-Nr. automatisch
 ausgelesen. Über **Verlauf exportieren …** lässt sich der gesamte Verlauf als
 CSV-Datei für Excel oder Numbers speichern. Die Druckaufträge liegen unter

@@ -30,6 +30,9 @@ struct ContentView: View {
     @Environment(\.openWindow) private var openWindow
     @EnvironmentObject private var appStore: AppStore
     @State private var journey = GuidedShippingJourney()
+    @State private var presentsDraft = false
+    @State private var hasLoadedDraft = false
+    @State private var replacementTask: GuidedShippingJourney.Task?
     @State private var selection: SidebarSelection? = .printer
 
     var body: some View {
@@ -44,14 +47,37 @@ struct ContentView: View {
         } detail: {
             switch selection ?? .printer {
             case .printer:
-                if appStore.guidedMode {
+                if presentsDraft, let task = journey.task {
                     GuidedShippingView(appStore: appStore, postage: appStore.postage, jobs: appStore.jobs,
                                        controller: appStore.letterFlowController, journey: $journey)
+                        .id(task)
                 } else {
-                    DashboardView(appStore: appStore, bluetooth: appStore.bluetooth, jobStore: appStore.jobs)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 24) {
+                            if let task = journey.task {
+                                GroupBox("Aktueller Entwurf") {
+                                    HStack {
+                                        Label(appStore.recipientName.isEmpty ? task.title : appStore.recipientName,
+                                              systemImage: task.icon)
+                                        Spacer()
+                                        Button("Entwurf fortsetzen") { presentsDraft = true }
+                                            .buttonStyle(.borderedProminent)
+                                    }.padding(8)
+                                }
+                            }
+                            ShippingTaskPicker(disabled: appStore.shippingBusy, choose: selectNewTask)
+                            if let message = appStore.lastMessage {
+                                Label(message, systemImage: "info.circle").font(.callout)
+                            }
+                        }
+                        .padding(32)
+                        .frame(maxWidth: 760)
+                        .frame(maxWidth: .infinity)
+                    }
+                    .navigationTitle("Versenden")
                 }
             case .labels:
-                LabelHistoryView(appStore: appStore, letters: appStore.letterFlows, labels: appStore.labelHistory)
+                LabelHistoryView(appStore: appStore, letters: appStore.letterFlows, labels: appStore.labelHistory, jobs: appStore.jobs)
             case .postage:
                 PostageBundleView(appStore: appStore, store: appStore.postage)
             }
@@ -62,8 +88,14 @@ struct ContentView: View {
             allowsMultipleSelection: true
         ) { result in
             switch result {
-            case .success(let urls): appStore.importFiles(urls, presentPreview: !appStore.guidedMode)
+            case .success(let urls): appStore.importFiles(urls)
             case .failure(let error): appStore.lastMessage = error.localizedDescription
+            }
+        }
+        .fileImporter(isPresented: $appStore.showDHLImporter, allowedContentTypes: [.pdf]) { result in
+            switch result {
+            case .success(let url): appStore.importDHLLabel(url)
+            case .failure(let error): appStore.reportDHLImportError(error)
             }
         }
         .fileImporter(
@@ -117,25 +149,62 @@ struct ContentView: View {
         } message: {
             Text(appStore.lastMessage ?? "Die CSV-Datei konnte nicht importiert werden.")
         }
+        .confirmationDialog("Aktuellen Entwurf ersetzen?", isPresented: Binding(
+            get: { replacementTask != nil },
+            set: { if !$0 { replacementTask = nil } }
+        ), titleVisibility: .visible, presenting: replacementTask) { task in
+            Button("Neuen Versand beginnen", role: .destructive) { beginNewTask(task) }
+            Button("Entwurf behalten", role: .cancel) {}
+        } message: { _ in
+            Text("Die Eingaben dieses Entwurfs werden geleert. Bereits vorbereitete Druckaufträge findest du im Label-Verlauf.")
+        }
+        .onAppear {
+            guard !hasLoadedDraft else { return }
+            if let saved = appStore.loadShippingDraft() { journey = saved }
+            hasLoadedDraft = true
+        }
+        .onChange(of: appStore.shippingDraft(for: journey)) { _, draft in
+            if hasLoadedDraft { appStore.saveShippingDraft(draft) }
+        }
+        .onChange(of: appStore.guidedMode) { _, guided in
+            if guided, presentsDraft, journey.task == .letter, journey.step == .recipient,
+               appStore.recipientAddress.isComplete, appStore.senderAddress.isComplete {
+                journey.advance()
+            }
+        }
         .onChange(of: appStore.shippingImportSequence) { _, _ in
             selection = .printer
             journey.choose(appStore.selectedShipmentKind == .letter ? .letter : .parcel)
+            presentsDraft = true
         }
         .onChange(of: appStore.labelImportSequence) { _, _ in
             guard let id = appStore.lastImportedLabelJobID else { return }
             selection = .printer
             journey.receiveParcel(id)
+            presentsDraft = true
         }
         .onChange(of: appStore.postageImportSequence) { _, _ in
             guard appStore.postageImportSucceeded else { return }
-            if appStore.guidedMode, selection == .printer {
+            if selection == .printer, presentsDraft, journey.task == .letter { return }
+            if selection == .printer, presentsDraft, journey.task == .postage {
                 journey.receivePostage()
-            } else { selection = .postage }
+            } else {
+                selection = .postage
+            }
+        }
+        .onChange(of: appStore.draftHomeSequence) { _, _ in
+            selection = .printer
+            presentsDraft = false
         }
         .onChange(of: appStore.homeRequestSequence) { _, _ in
             selection = .printer
+            presentsDraft = false
             journey.reset()
-            appStore.lastMessage = nil
+        }
+        .onChange(of: appStore.historyRequestSequence) { _, _ in
+            selection = .labels
+            presentsDraft = false
+            journey.reset()
         }
         .toolbar {
             ToolbarItem(placement: .principal) {
@@ -161,4 +230,19 @@ struct ContentView: View {
             }
         }
     }
+
+    private func selectNewTask(_ task: GuidedShippingJourney.Task) {
+        if journey.task != nil { replacementTask = task }
+        else { beginNewTask(task) }
+    }
+
+    private func beginNewTask(_ task: GuidedShippingJourney.Task) {
+        guard !appStore.shippingBusy else { return }
+        replacementTask = nil
+        appStore.resetShippingDraft()
+        appStore.selectedShipmentKind = task == .parcel ? .parcel : .letter
+        journey.choose(task)
+        presentsDraft = true
+    }
+
 }

@@ -151,11 +151,11 @@ Die Druck-App **Label Helper** wird zusätzlich benötigt.
 
 ## Aktualisieren
 
-- **Über die App eingerichtet:** Nach einem App-Update dieselbe Einrichtungshilfe
-  erneut öffnen und **Dateien vorbereiten** bzw. **Dateien aktualisieren** wählen.
-  Die Dateien werden am selben festen Ort ersetzt. In Chrome anschließend bei
-  `chrome://extensions/` an der Erweiterung auf **Neu laden** klicken; in Safari
-  die temporäre Erweiterung neu laden oder erneut hinzufügen. Dann Etsy neu laden.
+- **Über die App eingerichtet:** Nach einem App-Update unter **Importieren →
+  Browser-Erweiterung einrichten … → Aktualisieren** den Browser wählen und auf
+  **Dateien aktualisieren** klicken. In Chrome bei `chrome://extensions/` an der
+  Erweiterung **Neu laden** wählen. In Safari die temporäre Erweiterung aus dem
+  angezeigten Ordner erneut hinzufügen. Danach den Etsy-Tab neu laden (⌘R).
 - **Manuell eingerichtet:** Den Inhalt des bisherigen Erweiterungsordners durch
   die neue Version ersetzen und im Browser wie oben neu laden.
 - Falls du vorher einen anderen Ordner verwendet hast: Die alte Erweiterung

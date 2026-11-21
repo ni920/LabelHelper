@@ -32,8 +32,20 @@ public enum ParcelLabelParser {
     public static func parse(url: URL) -> ParcelLabelInfo? {
         guard url.pathExtension.lowercased() == "pdf",
               let document = PDFDocument(url: url), !document.isLocked else { return nil }
-        let text = (0..<document.pageCount).compactMap { document.page(at: $0)?.string }.joined(separator: "\n")
-        return parse(text: text)
+        return parse(text: documentText(document))
+    }
+
+    /// The dedicated DHL import needs both a shipping address and a tracking number.
+    /// General PDF import retains the broader optional metadata parser.
+    public static func recognizeShippingLabel(data: Data) -> ParcelLabelInfo? {
+        guard let document = PDFDocument(data: data), !document.isLocked,
+              let info = parse(text: documentText(document)),
+              info.addressLines.count >= 3, info.trackingNumber != nil else { return nil }
+        return info
+    }
+
+    private static func documentText(_ document: PDFDocument) -> String {
+        (0..<document.pageCount).compactMap { document.page(at: $0)?.string }.joined(separator: "\n")
     }
 
     public static func parse(text: String) -> ParcelLabelInfo? {

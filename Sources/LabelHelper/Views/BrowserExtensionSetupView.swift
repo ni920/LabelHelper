@@ -4,6 +4,9 @@ import SwiftUI
 
 struct BrowserExtensionSetupView: View {
     @Environment(\.dismissWindow) private var dismissWindow
+    private enum SetupMode { case install, update }
+    @State private var mode = SetupMode.install
+    @State private var updatePrepared = false
     @State private var journey = BrowserExtensionSetupJourney()
     @State private var preparedDirectory: URL?
     @State private var isPreparing = false
@@ -18,22 +21,35 @@ struct BrowserExtensionSetupView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             Text("Etsy mit Label Helper verbinden").font(.title2.weight(.semibold))
+            Picker("Vorgang", selection: $mode) {
+                Text("Erstinstallation").tag(SetupMode.install)
+                Text("Aktualisieren").tag(SetupMode.update)
+            }
+            .pickerStyle(.segmented)
+            .disabled(isPreparing)
+            .onChange(of: mode) { _, _ in errorMessage = nil; copyStatus = nil }
             Picker("Browser", selection: Binding(get: { browser }, set: {
                 journey.select($0); errorMessage = nil; copyStatus = nil
             })) {
                 ForEach(BrowserExtensionSetupJourney.Browser.allCases) { Text($0.rawValue).tag($0) }
             }.pickerStyle(.segmented).disabled(isPreparing)
-            HStack {
-                Text("Schritt \(journey.step.rawValue + 1) von 5").font(.callout).foregroundStyle(.secondary)
-                Spacer()
-                Text(isSafari ? "Temporäre Safari-Erweiterung" : "Chrome-Erweiterung").font(.callout)
+            if mode == .install {
+                HStack {
+                    Text("Schritt \(journey.step.rawValue + 1) von 5").font(.callout).foregroundStyle(.secondary)
+                    Spacer()
+                    Text(isSafari ? "Temporäre Safari-Erweiterung" : "Chrome-Erweiterung").font(.callout)
+                }
+                ProgressView(value: Double(journey.step.rawValue + 1), total: 5)
+                    .accessibilityLabel("Einrichtungsfortschritt")
             }
-            ProgressView(value: Double(journey.step.rawValue + 1), total: 5)
-                .accessibilityLabel("Einrichtungsfortschritt")
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    Text(journey.step.title).font(.title3.weight(.semibold))
-                    instructions
+                    if mode == .install {
+                        Text(journey.step.title).font(.title3.weight(.semibold))
+                        instructions
+                    } else {
+                        updateInstructions
+                    }
                     if let copyStatus { Label(copyStatus, systemImage: "doc.on.clipboard").font(.callout) }
                     if let errorMessage {
                         Label(errorMessage, systemImage: "exclamationmark.triangle")
@@ -42,7 +58,7 @@ struct BrowserExtensionSetupView: View {
                     if isPreparing { ProgressView("Dateien werden vorbereitet …").controlSize(.small) }
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
-            if journey.step != .files && !journey.canAdvance {
+            if mode == .install && journey.step != .files && !journey.canAdvance {
                 Text("Erledigt? Setze das Häkchen, dann kannst du weitergehen.")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -51,10 +67,15 @@ struct BrowserExtensionSetupView: View {
                 Button("Schließen", role: .cancel) { close() }.keyboardShortcut(.cancelAction)
                 Link("Anleitung", destination: URL(string: "https://github.com/ni920/LabelHelper/blob/main/BrowserExtension/README.md")!)
                 Spacer()
-                if journey.step != .files { Button("Zurück") { journey.back(); copyStatus = nil; errorMessage = nil } }
-                Button(primaryTitle, action: next)
-                    .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
-                    .disabled(isPreparing || (journey.step != .files && !journey.canAdvance))
+                if mode == .update {
+                    Button("Dateien aktualisieren") { Task { await prepareFiles(advanceInstallation: false) } }
+                        .buttonStyle(.borderedProminent)
+                } else {
+                    if journey.step != .files { Button("Zurück") { journey.back(); copyStatus = nil; errorMessage = nil } }
+                    Button(primaryTitle, action: next)
+                        .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                        .disabled(isPreparing || (journey.step != .files && !journey.canAdvance))
+                }
             }.disabled(isPreparing)
         }
         .padding(24)
@@ -120,6 +141,28 @@ struct BrowserExtensionSetupView: View {
         }
     }
 
+    private var updateInstructions: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Browser-Erweiterung aktualisieren").font(.title3.weight(.semibold))
+            instruction(1, "Mit „Dateien aktualisieren“ kopiert Label Helper die mitgelieferten Dateien in seinen festen Erweiterungsordner.")
+            if updatePrepared {
+                Label("Dateien aktuell. Lade die Erweiterung jetzt im Browser neu.", systemImage: "checkmark.circle")
+                folderActions
+            }
+            if isSafari {
+                instruction(2, "Öffne Safari → Einstellungen → Entwickler und füge die temporäre Erweiterung aus dem vorbereiteten Ordner erneut hinzu.")
+                Button("Safari öffnen") { Task { await openBrowser() } }
+            } else {
+                instruction(2, "Klicke bei „Label Helper für Etsy“ auf „Neu laden“. Wenn du die Erweiterung aus einem anderen Ordner geladen hast, verwende den vorbereiteten Ordner über „Entpackte Erweiterung laden“.")
+                HStack {
+                    Button("Chrome-Erweiterungen öffnen") { Task { await openBrowser() } }
+                    Button("Browseradresse kopieren") { copy("chrome://extensions/", message: "Browseradresse kopiert.") }
+                }
+            }
+            instruction(3, "Lade den Etsy-Tab mit ⌘R neu.")
+        }
+    }
+
     private var folderActions: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let preparedDirectory {
@@ -153,9 +196,12 @@ struct BrowserExtensionSetupView: View {
         else { journey.advance() }
     }
 
-    @MainActor private func prepareFiles() async {
+    @MainActor private func prepareFiles(advanceInstallation: Bool = true) async {
         guard !isPreparing else { return }
         isPreparing = true
+        if !advanceInstallation { updatePrepared = false }
+        errorMessage = nil
+        copyStatus = nil
         defer { isPreparing = false }
         do {
             guard let source = Bundle.main.url(forResource: "BrowserExtension", withExtension: nil) else {
@@ -164,7 +210,8 @@ struct BrowserExtensionSetupView: View {
             let destination = try preparationDirectory ?? BrowserExtensionFiles.defaultDirectory()
             preparedDirectory = try BrowserExtensionFiles.prepare(from: source, at: destination)
             journey.didPrepareFiles()
-            journey.advance()
+            if advanceInstallation { journey.advance() }
+            else { updatePrepared = true }
         } catch { errorMessage = "Dateien nicht vorbereitet: \(error.localizedDescription)" }
     }
 

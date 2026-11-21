@@ -6,15 +6,19 @@ struct LabelHistoryView: View {
     @ObservedObject var appStore: AppStore
     @ObservedObject var letters: LetterFlowStore
     @ObservedObject var labels: LabelHistoryStore
+    @ObservedObject var jobs: PrintJobStore
+    @State private var search = ""
 
     private enum Item: Identifiable {
         case letter(LetterShipmentFlow)
         case label(LabelHistoryRecord)
+        case stampSheet(PrintJob)
 
         var id: UUID {
             switch self {
             case .letter(let flow): flow.id
             case .label(let record): record.id
+            case .stampSheet(let job): job.id
             }
         }
 
@@ -22,12 +26,31 @@ struct LabelHistoryView: View {
             switch self {
             case .letter(let flow): flow.createdAt
             case .label(let record): record.createdAt
+            case .stampSheet(let job): job.createdAt
             }
         }
     }
 
     private var items: [Item] {
-        (letters.flows.map(Item.letter) + labels.records.map(Item.label)).sorted { $0.date > $1.date }
+        let sheets = jobs.jobs.filter { $0.letterFlowID == nil && $0.postageStampIDs != nil }
+        return (letters.flows.map(Item.letter) + labels.records.map(Item.label) + sheets.map(Item.stampSheet))
+            .sorted { $0.date > $1.date }
+    }
+
+    private var visibleItems: [Item] {
+        guard !search.isEmpty else { return items }
+        return items.filter { item in
+            let fields: [String]
+            switch item {
+            case .letter(let flow):
+                fields = [flow.recipientName, flow.orderID ?? "", flow.stamp.trackingNumber ?? ""]
+            case .label(let record):
+                fields = [record.title, record.orderID ?? "", record.trackingNumber ?? "", record.fileTitle]
+            case .stampSheet(let job):
+                fields = [job.title] + (job.postageStampIDs ?? []).compactMap(PostageStamp.trackingNumber(forID:))
+            }
+            return fields.contains { $0.localizedStandardContains(search) }
+        }
     }
 
     var body: some View {
@@ -35,16 +58,20 @@ struct LabelHistoryView: View {
             if items.isEmpty {
                 ContentUnavailableView("Noch keine Labels", systemImage: "clock.arrow.circlepath",
                     description: Text(letters.storageError ?? labels.storageError ?? "Gedruckte Briefe und Paketlabel erscheinen hier mit ihrer Sendungsnummer."))
+            } else if visibleItems.isEmpty {
+                ContentUnavailableView.search(text: search)
             } else {
-                List(items) { item in
+                List(visibleItems) { item in
                     switch item {
                     case .letter(let flow): letterRow(flow)
                     case .label(let record): labelRow(record)
+                    case .stampSheet(let job): stampSheetRow(job)
                     }
                 }
             }
         }
         .navigationTitle("Label-Verlauf")
+        .searchable(text: $search, prompt: "Name, Bestellung oder Sendungsnummer")
         .toolbar {
             Button("Verlauf exportieren …", action: appStore.exportHistory)
                 .help("Label-Verlauf als CSV-Datei speichern")
@@ -80,8 +107,27 @@ struct LabelHistoryView: View {
             }
             Spacer()
             if let number = record.trackingNumber { TrackingNumberView(number: number) }
+            if let job = jobs.jobs.first(where: { $0.id == record.id }) {
+                Button("Öffnen …") { appStore.presentPrintPreview(job) }
+                    .disabled(job.status == .printing || appStore.shippingBusy)
+            }
+
         }
         .padding(.vertical, 6)
+    }
+
+    private func stampSheetRow(_ job: PrintJob) -> some View {
+        HStack(spacing: 14) {
+            kindIcon("rectangle.stack")
+            VStack(alignment: .leading, spacing: 4) {
+                Text(job.title).font(.headline)
+                Text(job.status.label).font(.callout).foregroundStyle(statusColor(job.status))
+                dateText(job.createdAt)
+            }
+            Spacer()
+            Button("Öffnen …") { appStore.presentPrintPreview(job) }
+                .disabled(job.status == .printing || appStore.shippingBusy)
+        }.padding(.vertical, 6)
     }
 
     private func detail(_ record: LabelHistoryRecord) -> String {

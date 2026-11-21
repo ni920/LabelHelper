@@ -100,51 +100,82 @@ public enum PostagePDFService {
                                         fitHeightToContent: fitHeightToContent, placement: placement)
         guard layout.capacity > 0, !layout.sheets.isEmpty else { throw PostagePDFError.formatTooSmall }
         var documents: [URL: CGPDFDocument] = [:]
-        var output: [(URL, [String], LabelFormat)] = []
+        var output: [(url: URL, stampIDs: [String], format: LabelFormat)] = []
         for (index, placements) in layout.sheets.enumerated() {
             let target = directory.appendingPathComponent("briefmarken-\(UUID().uuidString).pdf")
             let sheetFormat = layout.sheetFormats[index]
-            var mediaBox = CGRect(x: 0, y: 0, width: sheetFormat.widthMM * 72 / 25.4, height: sheetFormat.heightMM * 72 / 25.4)
-            guard let context = CGContext(target as CFURL, mediaBox: &mediaBox, nil) else { throw PostagePDFError.cannotWrite }
-            context.beginPDFPage(nil)
-            for placement in placements {
-                let stamp = stamps[placement.stampIndex]
-                if documents[stamp.sourceURL] == nil { documents[stamp.sourceURL] = CGPDFDocument(stamp.sourceURL as CFURL) }
-                guard let page = documents[stamp.sourceURL]?.page(at: stamp.pageNumber) else {
-                    context.endPDFPage(); context.closePDF(); throw PostagePDFError.unreadable
-                }
-                context.saveGState()
-                context.clip(to: placement.rect)
-                context.translateBy(x: placement.rect.minX - stamp.sourceRect.minX, y: placement.rect.minY - stamp.sourceRect.minY)
-                context.drawPDFPage(page)
-                context.restoreGState()
+            var mediaBox = sheetBounds(sheetFormat)
+            guard let context = CGContext(target as CFURL, mediaBox: &mediaBox, nil) else {
+                throw PostagePDFError.cannotWrite
             }
-            if cutGuides {
-                // Fine black dashes survive the printer's 1-bit threshold.
-                context.setStrokeColor(gray: 0, alpha: 1)
-                context.setLineWidth(0.35)
-                context.setLineDash(phase: 0, lengths: [2, 3])
-                let grid = layout.grids[index]
-                let left = grid.left
-                let top = grid.top
-                let rows = Int(ceil(Double(placements.count) / Double(layout.columns)))
-                if grid.columns > 1 {
-                    for column in 1..<grid.columns {
-                        let x = left + Double(column) * layout.cellSize.width
-                        context.move(to: CGPoint(x: x, y: top)); context.addLine(to: CGPoint(x: x, y: top - Double(rows) * layout.cellSize.height))
-                    }
-                }
-                if rows > 1 {
-                    for row in 1..<rows {
-                        let y = top - Double(row) * layout.cellSize.height
-                        context.move(to: CGPoint(x: left, y: y)); context.addLine(to: CGPoint(x: left + Double(grid.columns) * layout.cellSize.width, y: y))
-                    }
-                }
-                context.strokePath()
-            }
-            context.endPDFPage(); context.closePDF()
+            try drawSheet(in: context, index: index, layout: layout, stamps: stamps, cutGuides: cutGuides,
+                          documents: &documents)
             output.append((target, placements.map { stamps[$0.stampIndex].id }, sheetFormat))
         }
         return output
+    }
+
+    public static func singleStampSheet(_ stamp: PostageStamp, format: LabelFormat, fitHeightToContent: Bool,
+                                        placement: PostageStampPlacement) throws -> (data: Data, format: LabelFormat) {
+        let layout = PostageSheetLayout(stampSizes: [stamp.sourceRect.size], format: format,
+                                        fitHeightToContent: fitHeightToContent, placement: placement)
+        guard let sheetFormat = layout.sheetFormats.first else { throw PostagePDFError.formatTooSmall }
+        let data = NSMutableData()
+        var mediaBox = sheetBounds(sheetFormat)
+        guard let consumer = CGDataConsumer(data: data as CFMutableData),
+              let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else {
+            throw PostagePDFError.cannotWrite
+        }
+        var documents: [URL: CGPDFDocument] = [:]
+        try drawSheet(in: context, index: 0, layout: layout, stamps: [stamp], cutGuides: false,
+                      documents: &documents)
+        return (data as Data, sheetFormat)
+    }
+
+    private static func sheetBounds(_ format: LabelFormat) -> CGRect {
+        CGRect(x: 0, y: 0, width: format.widthMM * 72 / 25.4, height: format.heightMM * 72 / 25.4)
+    }
+
+    private static func drawSheet(in context: CGContext, index: Int, layout: PostageSheetLayout,
+                                  stamps: [PostageStamp], cutGuides: Bool,
+                                  documents: inout [URL: CGPDFDocument]) throws {
+        let placements = layout.sheets[index]
+        context.beginPDFPage(nil)
+        defer { context.endPDFPage(); context.closePDF() }
+        for placement in placements {
+            let stamp = stamps[placement.stampIndex]
+            if documents[stamp.sourceURL] == nil { documents[stamp.sourceURL] = CGPDFDocument(stamp.sourceURL as CFURL) }
+            guard let page = documents[stamp.sourceURL]?.page(at: stamp.pageNumber) else {
+                throw PostagePDFError.unreadable
+            }
+            context.saveGState()
+            context.clip(to: placement.rect)
+            context.translateBy(x: placement.rect.minX - stamp.sourceRect.minX, y: placement.rect.minY - stamp.sourceRect.minY)
+            context.drawPDFPage(page)
+            context.restoreGState()
+        }
+        if cutGuides {
+            // Fine black dashes survive the printer's 1-bit threshold.
+            context.setStrokeColor(gray: 0, alpha: 1)
+            context.setLineWidth(0.35)
+            context.setLineDash(phase: 0, lengths: [2, 3])
+            let grid = layout.grids[index]
+            let left = grid.left
+            let top = grid.top
+            let rows = Int(ceil(Double(placements.count) / Double(layout.columns)))
+            if grid.columns > 1 {
+                for column in 1..<grid.columns {
+                    let x = left + Double(column) * layout.cellSize.width
+                    context.move(to: CGPoint(x: x, y: top)); context.addLine(to: CGPoint(x: x, y: top - Double(rows) * layout.cellSize.height))
+                }
+            }
+            if rows > 1 {
+                for row in 1..<rows {
+                    let y = top - Double(row) * layout.cellSize.height
+                    context.move(to: CGPoint(x: left, y: y)); context.addLine(to: CGPoint(x: left + Double(grid.columns) * layout.cellSize.width, y: y))
+                }
+            }
+            context.strokePath()
+        }
     }
 }
