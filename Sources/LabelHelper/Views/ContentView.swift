@@ -85,6 +85,14 @@ struct ContentView: View {
             onCompletion: { appStore.finishFileImport($0) },
             onCancellation: { appStore.finishFileImport() }
         )
+        .sheet(isPresented: $appStore.showPrinterConnection) {
+            VStack(alignment: .trailing, spacing: 0) {
+                PrinterConnectionControls(appStore: appStore, bluetooth: appStore.bluetooth)
+                Button("Fertig") { appStore.showPrinterConnection = false }
+                    .keyboardShortcut(.defaultAction)
+                    .padding([.trailing, .bottom], 20)
+            }
+        }
         .sheet(isPresented: $appStore.showEtsyImportReview, onDismiss: appStore.importSheetDismissed) {
             EtsyImportView(appStore: appStore)
         }
@@ -180,8 +188,10 @@ struct ContentView: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
-                ShipmentImportMenu(appStore: appStore)
-                PrinterConnectionView(appStore: appStore, bluetooth: appStore.bluetooth, handlesMenuRequests: true)
+                if selection != .labels {
+                    ShipmentImportMenu(appStore: appStore)
+                    PrinterConnectionView(appStore: appStore, bluetooth: appStore.bluetooth)
+                }
             }
         }
     }

@@ -59,17 +59,24 @@ struct LabelHistoryView: View {
             if items.isEmpty {
                 ContentUnavailableView("Noch keine Labels", systemImage: "clock.arrow.circlepath",
                     description: Text(letters.storageError ?? labels.storageError ?? "Hier findest du vorbereitete und gedruckte Etiketten."))
-            } else if visibleItems.isEmpty {
-                ContentUnavailableView.search(text: search)
+                .safeAreaInset(edge: .bottom, alignment: .leading, spacing: 0) {
+                    if !jobs.jobs.isEmpty { exportButton }
+                }
             } else {
                 HSplitView {
-                    List(visibleItems, selection: $selectedID) { item in
-                        historyRow(item).tag(item.id)
+                    VStack(spacing: 0) {
+                        List(visibleItems, selection: $selectedID) { item in
+                            historyRow(item).tag(item.id)
+                        }
+                        Divider()
+                        exportButton
                     }
-                    .frame(minWidth: 235, idealWidth: 300)
+                    .frame(minWidth: 235, idealWidth: 315, maxWidth: 430)
 
                     ScrollView {
-                        if let item = visibleItems.first(where: { $0.id == selectedID }) {
+                        if visibleItems.isEmpty {
+                            ContentUnavailableView.search(text: search)
+                        } else if let item = visibleItems.first(where: { $0.id == selectedID }) {
                             historyDetail(item)
                                 .id(item.id)
                                 .padding(24)
@@ -87,12 +94,15 @@ struct LabelHistoryView: View {
         }
         .navigationTitle("Label-Verlauf")
         .searchable(text: $search, prompt: "Name, Bestellung oder Sendungsnummer")
-        .toolbar {
-            Button(action: appStore.exportHistory) {
-                Label("CSV exportieren …", systemImage: "square.and.arrow.up")
-            }
-            .disabled(items.isEmpty && jobs.jobs.isEmpty)
-        }
+    }
+
+    private var exportButton: some View {
+        Button("Verlauf als CSV exportieren …", action: appStore.exportHistory)
+            .buttonStyle(.link)
+            .help("Gesamten Label-Verlauf als CSV-Datei sichern")
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func historyRow(_ item: Item) -> some View {
