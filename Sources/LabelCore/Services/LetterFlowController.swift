@@ -11,6 +11,7 @@ public final class LetterFlowController: ObservableObject {
     private let store: LetterFlowStore
     private let postage: PostageStampStore
     private let isReady: () -> Bool
+    private var onFinish: (() -> Void)?
     private let printJob: Printer
 
     public init(store: LetterFlowStore, postage: PostageStampStore, isReady: @escaping () -> Bool, printJob: @escaping Printer) {
@@ -24,14 +25,16 @@ public final class LetterFlowController: ObservableObject {
         }
     }
 
-    public func start(_ id: UUID) {
-        guard activeFlowID == nil, let flow = store.flow(id), flow.stage == .ready || flow.stage == .addressPrinted else { return }
-        guard isReady() else { message = "Bitte den RW403B verbinden und die Materialeinstellung prüfen. Endlosrollen benötigen Firmware ab 1.1.49."; return }
-        guard store.storageError == nil else { message = store.storageError; return }
+    public func start(_ id: UUID, completion: (() -> Void)? = nil) {
+        guard activeFlowID == nil, let flow = store.flow(id), flow.stage == .ready || flow.stage == .addressPrinted else { completion?(); return }
+        guard isReady() else { message = "Bitte den RW403B verbinden und die Materialeinstellung prüfen. Endlosrollen benötigen Firmware ab 1.1.49."; completion?(); return }
+        guard store.storageError == nil else { message = store.storageError; completion?(); return }
         if flow.needsPostagePrint && !reserveStamp(for: flow) {
             message = store.storageError ?? postage.storageError ?? "Die gewählte Briefmarke ist nicht mehr verfügbar."
+            completion?()
             return
         }
+        onFinish = completion
         activeFlowID = id; message = nil
         if flow.stage == .ready { printAddress(flow) } else { printStamp(flow) }
     }
@@ -142,5 +145,8 @@ public final class LetterFlowController: ObservableObject {
     private func stop() {
         activeFlowID = nil
         if let error = store.storageError ?? postage.storageError { message = error }
+        let finished = onFinish
+        onFinish = nil
+        finished?()
     }
 }

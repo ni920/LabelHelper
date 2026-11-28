@@ -62,6 +62,14 @@ struct ContentView: View {
                                 }
                             }
                             ShippingTaskPicker(disabled: appStore.shippingBusy, choose: selectNewTask)
+                            Button {
+                                appStore.showOrderBatch = true
+                            } label: {
+                                let count = appStore.orderBatch.orders.count
+                                Label(count == 0 ? "Sammeldruck …" : "Sammeldruck (\(count)) …", systemImage: "square.stack")
+                            }
+                            .frame(maxWidth: .infinity)
+                            .disabled(appStore.shippingBusy)
                             if let message = appStore.lastMessage {
                                 Label(message, systemImage: "info.circle").font(.callout)
                             }
@@ -85,6 +93,9 @@ struct ContentView: View {
             onCompletion: { appStore.finishFileImport($0) },
             onCancellation: { appStore.finishFileImport() }
         )
+        .sheet(isPresented: $appStore.showOrderBatch, onDismiss: appStore.importSheetDismissed) {
+            OrderBatchView(appStore: appStore, batch: appStore.orderBatch, postage: appStore.postage, bluetooth: appStore.bluetooth)
+        }
         .sheet(isPresented: $appStore.showPrinterConnection) {
             VStack(alignment: .trailing, spacing: 0) {
                 PrinterConnectionControls(appStore: appStore, bluetooth: appStore.bluetooth)

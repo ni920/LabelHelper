@@ -44,8 +44,9 @@ final class PrintJobStore: ObservableObject {
             postageStampIDs: postageStampIDs,
             letterFlowID: letterFlowID
         )
-        jobs.insert(job, at: 0)
-        persist()
+        let updated = [job] + jobs
+        try JSONEncoder().encode(updated).write(to: persistenceURL, options: .atomic)
+        jobs = updated
         return job
     }
 

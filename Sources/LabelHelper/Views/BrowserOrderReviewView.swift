@@ -44,6 +44,8 @@ struct BrowserOrderReviewView: View {
                     appStore.dismissIncomingBrowserOrder()
                 }
                 Spacer()
+                Button("Zum Sammeldruck") { appStore.collectBrowserOrder() }
+                    .disabled(order == nil || appStore.shippingBusy || appStore.orderBatch.storageError != nil)
                 Button("Paketlabel öffnen …") { appStore.acceptIncomingBrowserOrder(as: .parcel) }
                     .disabled(order == nil || appStore.shippingBusy)
                 Button("Brief vorbereiten") { appStore.acceptIncomingBrowserOrder(as: .letter) }
@@ -53,7 +55,7 @@ struct BrowserOrderReviewView: View {
             }
         }
         .padding(24)
-        .frame(width: 570)
+        .frame(minWidth: 660)
     }
 
     private var order: BrowserOrderPayload? {

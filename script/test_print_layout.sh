@@ -27,6 +27,7 @@ swiftc -parse-as-library -sdk "$SDKROOT" \
   Sources/LabelHelper/Services/EtsyAddressLabelWriter.swift \
   Sources/LabelHelper/Services/PackingSlipWriter.swift \
   Sources/LabelHelper/Services/LabelRenderer.swift \
+  Sources/LabelHelper/Stores/OrderBatchStore.swift \
   Tests/PrintLayoutTests.swift "${CORE_OBJECTS[@]}" \
   -o "$TEST_DIR/PrintLayoutTests"
 codesign --force --sign - "$TEST_DIR/PrintLayoutTests"

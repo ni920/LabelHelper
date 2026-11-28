@@ -135,6 +135,10 @@ final class AppStore: ObservableObject {
     @Published private(set) var activeCSVOrderID: String?
 
     let bluetooth = BluetoothPrinterService()
+    let orderBatch: OrderBatchStore
+    @Published var showOrderBatch = false
+    var reviewBatchAfterCSV = false
+    var batchJobID: UUID?
     let jobs: PrintJobStore
     let postage: PostageStampStore
     let letterFlows: LetterFlowStore
@@ -151,6 +155,7 @@ final class AppStore: ObservableObject {
         }
     )
     private let defaults: UserDefaults
+    private var batchObservation: AnyCancellable?
     private var postageObservation: AnyCancellable?
 
     private enum Keys {
@@ -175,6 +180,7 @@ final class AppStore: ObservableObject {
         self.defaults = defaults
         applicationDataLocation = ApplicationDataManager.prepareDefaultLocation()
         let root = applicationDataLocation.rootURL
+        orderBatch = OrderBatchStore(directory: root)
         jobs = PrintJobStore(directory: root)
         postage = PostageStampStore(directory: root.appendingPathComponent("Briefmarken", isDirectory: true))
         letterFlows = LetterFlowStore(directory: root.appendingPathComponent("Briefversand", isDirectory: true))
@@ -211,6 +217,7 @@ final class AppStore: ObservableObject {
         lastMessage = applicationDataLocation.warning ?? (applicationDataLocation.migratedLegacyData
             ? "Die lokalen App-Daten wurden sicher in den neuen Label-Helper-Ordner verschoben."
             : nil)
+        batchObservation = orderBatch.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
         postageObservation = postage.$entries.sink { [weak self] entries in
             self?.selectAvailablePostage(in: entries)
         }
@@ -226,7 +233,7 @@ final class AppStore: ObservableObject {
     }
 
     var canManageApplicationData: Bool {
-        !printInProgress && !printingPostageBatch && letterFlowController.activeFlowID == nil
+        !shippingBusy
     }
 
     var selectedLabelFormat: LabelFormat {
@@ -269,9 +276,11 @@ final class AppStore: ObservableObject {
         return job.resolvedLabelFormat.includesCutGuide ? raster : applyingMaterialCutGuide(to: raster)
     }
 
-    var selectedLetterLabelFormat: LabelFormat {
+    var selectedLetterLabelFormat: LabelFormat { letterFormat(for: recipientAddress) }
+
+    func letterFormat(for recipient: RecipientAddress) -> LabelFormat {
         if labelStockMode == .continuous100 {
-            return EtsyAddressLabelWriter.continuousFormat(recipient: recipientAddress, sender: senderAddress, design: addressLabelDesign)
+            return EtsyAddressLabelWriter.continuousFormat(recipient: recipient, sender: senderAddress, design: addressLabelDesign)
         }
         if letterFormatID == "custom" {
             return .custom(widthMM: customWidthMM, heightMM: customHeightMM)
@@ -367,7 +376,7 @@ final class AppStore: ObservableObject {
 
     func presentNextImport() {
         guard !pendingImports.isEmpty, !shippingBusy, fileImport == nil, !dismissingPreviewForImport,
-              !showBrowserOrderReview, !showEtsyImportReview, !showEtsyImportError else { return }
+              !showOrderBatch, !showBrowserOrderReview, !showEtsyImportReview, !showEtsyImportError else { return }
         if previewJob != nil || letterFlowPreview != nil || postagePreview != nil {
             dismissingPreviewForImport = true
             closeShippingPreviews()
@@ -385,6 +394,11 @@ final class AppStore: ObservableObject {
 
     func importSheetDismissed() {
         dismissingPreviewForImport = false
+        if reviewBatchAfterCSV {
+            reviewBatchAfterCSV = false
+            showOrderBatch = true
+            return
+        }
         presentNextImport()
     }
 
@@ -433,7 +447,7 @@ final class AppStore: ObservableObject {
     }
 
     func printTestLabel() {
-        guard !printInProgress, !printingPostageBatch, letterFlowController.activeFlowID == nil else { return }
+        guard !shippingBusy else { return }
         // Keep a continuous-stock test short even if the current task is a parcel.
         let testFormat = labelStockMode == .continuous100 ? LabelFormat.continuousLetter100x55 : selectedLabelFormat
         if labelStockMode == .continuous100 && !canPrintSelectedMaterialOverBluetooth {
@@ -467,7 +481,7 @@ final class AppStore: ObservableObject {
     }
 
     func printJob(_ job: PrintJob, letterFlowID: UUID? = nil, completion: ((Result<Void, Error>) -> Void)? = nil) {
-        guard !printInProgress else {
+        guard !printInProgress, !orderBatch.running || (batchJobID != nil && (job.id == batchJobID || letterFlowID == batchJobID)) else {
             completion?(.failure(BluetoothPrinterError.transferInProgress)); return
         }
         guard (letterFlowController.activeFlowID == nil || letterFlowController.activeFlowID == letterFlowID),
@@ -559,7 +573,7 @@ final class AppStore: ObservableObject {
     }
 
     func preparePostageSheets(format: LabelFormat, cutGuides: Bool) {
-        guard !printInProgress, !printingPostageBatch, letterFlowController.activeFlowID == nil else { return }
+        guard !shippingBusy else { return }
         let stamps = postage.entries.filter { selectedPostageIDs.contains($0.id) && $0.status == .available }.map(\.stamp)
         guard !stamps.isEmpty else { lastMessage = "Bitte verfügbare Briefmarken auswählen."; return }
         do {
@@ -576,7 +590,7 @@ final class AppStore: ObservableObject {
     }
 
     func printPostageSheets(_ batch: PostagePrintBatch) {
-        guard !printInProgress, !printingPostageBatch, bluetooth.connectionState.isReady,
+        guard !shippingBusy, bluetooth.connectionState.isReady,
               letterFlowController.activeFlowID == nil,
               canPrintSelectedMaterialOverBluetooth, postage.canPrint(batch.jobs.flatMap { $0.postageStampIDs ?? [] }) else {
             lastMessage = "Drucker verbinden und die Markenauswahl prüfen. Für Endlosrollen ist Firmware ab 1.1.49 erforderlich."
@@ -764,7 +778,7 @@ final class AppStore: ObservableObject {
     }
 
     var shippingBusy: Bool {
-        printInProgress || printingPostageBatch || letterFlowController.activeFlowID != nil
+        orderBatch.running || printInProgress || printingPostageBatch || letterFlowController.activeFlowID != nil
     }
 
     func resetShippingDraft() {
@@ -848,67 +862,85 @@ final class AppStore: ObservableObject {
         let stamp = letterWithPostage
             ? postage.entries.first { $0.id == selectedLetterPostageID && $0.status == .available }?.stamp
             : nil
-        return LetterReviewSettings(recipient: recipientAddress, sender: senderAddress, stamp: stamp,
-                                    needsStamp: letterWithPostage, combined: combinedLabel,
+        return letterSettings(recipient: recipientAddress, note: packingNote, needsStamp: letterWithPostage, stamp: stamp)
+    }
+
+    func letterSettings(recipient: RecipientAddress, note: String, needsStamp: Bool, stamp: PostageStamp?) -> LetterReviewSettings {
+        let format = letterFormat(for: recipient)
+        return LetterReviewSettings(recipient: recipient, sender: senderAddress, stamp: stamp,
+                                    needsStamp: needsStamp, combined: combinedLabel,
                                     stampPlacement: postageStampPlacement, design: addressLabelDesign,
-                                    addressFormat: selectedLetterLabelFormat, stampFormat: selectedLetterPostageFormat,
+                                    addressFormat: format, stampFormat: labelStockMode == .continuous100 ? .shipping100x150 : format,
                                     continuous: labelStockMode == .continuous100, additionalFeedMM: continuousExtraFeedMM,
-                                    packingNote: packingNote.trimmingCharacters(in: .whitespacesAndNewlines))
+                                    packingNote: note.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     func printReviewedLetter(_ plan: LetterPrintPlan) {
-        guard !shippingBusy, plan.settings == letterReviewSettings,
-              let firstPage = plan.pages.first else { return }
+        guard !shippingBusy, plan.settings == letterReviewSettings else { return }
         let hasStamp = plan.settings.stamp != nil
         guard (!hasStamp && !canPrintSelectedMaterialOverBluetooth) || bluetooth.connectionState.isReady,
               !hasStamp || canPrintSelectedMaterialOverBluetooth else { return }
         if openExistingLetterPrint() { return }
 
         do {
-            let id = UUID()
-            let directory = hasStamp ? postage.directory : applicationDataLocation.rootURL
-                .appendingPathComponent("Address Labels", isDirectory: true)
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let urls = try plan.pages.enumerated().map { index, page in
-                let url = directory.appendingPathComponent("brief-\(id.uuidString)-\(index + 1).pdf")
-                try page.pdf.write(to: url, options: .atomic)
-                return url
-            }
-            let orderID = activeBrowserOrder?.orderID ?? activeCSVOrderID
-            let name = recipientAddress.name
-            if let stamp = plan.settings.stamp {
-                let combined = plan.pages.count == 1
-                let addressJob = try jobs.enqueue(url: urls[0], labelFormat: firstPage.format,
-                    displayName: combined ? "Brief mit Marke · \(name)" : "Briefadresse · \(name)",
-                    sourceFingerprint: "letter-address:\(id)",
-                    postageStampIDs: combined ? [stamp.id] : nil, letterFlowID: id)
-                let stampJob: PrintJob
-                if combined {
-                    stampJob = addressJob
-                } else {
-                    stampJob = try jobs.enqueue(url: urls[1], labelFormat: plan.pages[1].format,
-                        displayName: "Briefmarke · \(name)", sourceFingerprint: "letter-stamp:\(id)",
-                        postageStampIDs: [stamp.id], letterFlowID: id)
-                }
-                let flow = LetterShipmentFlow(id: id, recipientName: name, orderID: orderID, stamp: stamp,
-                    addressJob: addressJob, stampJob: stampJob, stage: combined ? .addressPrinted : .ready,
-                    isCombined: combined)
-                try letterFlows.add(flow)
-                draftLetterFlowID = id
+            switch try prepareLetter(plan, id: UUID(), orderID: activeBrowserOrder?.orderID ?? activeCSVOrderID) {
+            case .stamped(let flow):
+                draftLetterFlowID = flow.id
                 letterFlowPreview = flow
-                letterFlowController.start(id)
-            } else {
-                let job = try jobs.enqueue(url: urls[0], labelFormat: firstPage.format, displayName: "Brief · \(name)",
-                    sourceFingerprint: "manual-address:\(id)")
-                if let record = LabelHistoryRecord(job: job, parcelInfo: nil, recipient: recipientAddress,
-                                                   orderID: orderID) {
-                    labelHistory.add(record)
-                }
+                letterFlowController.start(flow.id)
+            case .address(let job):
                 draftAddressJobID = job.id
                 printJob(job)
             }
         } catch {
             lastMessage = "Briefversand konnte nicht vorbereitet werden: \(error.localizedDescription)"
+        }
+    }
+
+    enum PreparedLetter {
+        case stamped(LetterShipmentFlow)
+        case address(PrintJob)
+    }
+
+    func prepareLetter(_ plan: LetterPrintPlan, id: UUID, orderID: String?) throws -> PreparedLetter {
+        guard let firstPage = plan.pages.first else { throw LabelRendererError.cannotCreateBitmap }
+        let hasStamp = plan.settings.stamp != nil
+        let directory = hasStamp ? postage.directory : applicationDataLocation.rootURL
+            .appendingPathComponent("Address Labels", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let urls = try plan.pages.enumerated().map { index, page in
+            let url = directory.appendingPathComponent("brief-\(id.uuidString)-\(index + 1).pdf")
+            try page.pdf.write(to: url, options: .atomic)
+            return url
+        }
+        let name = plan.settings.recipient.name
+        if let stamp = plan.settings.stamp {
+            let combined = plan.pages.count == 1
+            let addressJob = try jobs.enqueue(url: urls[0], labelFormat: firstPage.format,
+                displayName: combined ? "Brief mit Marke · \(name)" : "Briefadresse · \(name)",
+                sourceFingerprint: "letter-address:\(id)",
+                postageStampIDs: combined ? [stamp.id] : nil, letterFlowID: id)
+            let stampJob: PrintJob
+            if combined {
+                stampJob = addressJob
+            } else {
+                stampJob = try jobs.enqueue(url: urls[1], labelFormat: plan.pages[1].format,
+                    displayName: "Briefmarke · \(name)", sourceFingerprint: "letter-stamp:\(id)",
+                    postageStampIDs: [stamp.id], letterFlowID: id)
+            }
+            let flow = LetterShipmentFlow(id: id, recipientName: name, orderID: orderID, stamp: stamp,
+                addressJob: addressJob, stampJob: stampJob, stage: combined ? .addressPrinted : .ready,
+                isCombined: combined)
+            try letterFlows.add(flow)
+            return .stamped(flow)
+        } else {
+            let job = try jobs.enqueue(url: urls[0], labelFormat: firstPage.format, displayName: "Brief · \(name)",
+                sourceFingerprint: "manual-address:\(id)")
+            if let record = LabelHistoryRecord(job: job, parcelInfo: nil, recipient: plan.settings.recipient,
+                                               orderID: orderID) {
+                labelHistory.add(record)
+            }
+            return .address(job)
         }
     }
 

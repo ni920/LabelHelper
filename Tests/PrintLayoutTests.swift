@@ -12,13 +12,52 @@ private func require(_ condition: @autoclosure () -> Bool, _ message: String) th
 
 @main
 struct PrintLayoutTests {
-    static func main() {
+    static func main() async {
         do {
             try runTests()
+            try await checkOrderBatch()
         } catch {
             fputs("Print layout tests failed: \(error)\n", stderr)
             exit(1)
         }
+    }
+
+    @MainActor
+    private static func checkOrderBatch() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let recipient = RecipientAddress(name: "Test", street1: "Weg 1", postalCode: "12345", city: "Stadt", country: "DE")
+        let orders = ["1", "2", "3"].map { BatchOrder(orderID: $0, recipient: recipient, packingNote: "Capy") }
+        let batch = OrderBatchStore(directory: directory)
+        try require(batch.add(orders + [orders[0]]) && batch.orders.count == 3, "Batch duplicated an order")
+        var sent: [String] = []
+        var acknowledge: ((Result<Void, Error>) -> Void)?
+        let prepare: OrderBatchStore.Prepare = { order in
+            { reply in
+                sent.append(order.orderID)
+                acknowledge = reply
+            }
+        }
+        batch.start(prepare: prepare)
+        batch.start(prepare: prepare)
+        try require(sent == ["1"], "Batch sent overlapping print jobs")
+        let interrupted = OrderBatchStore(directory: directory)
+        try require(interrupted.orders.map(\.submitted) == [true, false, false] && !interrupted.running,
+                    "Restart lost the handoff or restarted the printer")
+        batch.stopAfterCurrent()
+        acknowledge?(.success(()))
+        while batch.running { await Task.yield() }
+        try require(sent == ["1"] && batch.orders.map(\.orderID) == ["2", "3"], "Stop lost remaining orders")
+        batch.start(prepare: prepare)
+        acknowledge?(.failure(TestFailure.assertion("Paper out")))
+        try require(!batch.running && batch.orders.first?.submitted == true, "Ambiguous print was released for retry")
+        let reopened = OrderBatchStore(directory: directory)
+        reopened.start(prepare: prepare)
+        try require(sent == ["1", "2", "3"], "Restart retried an ambiguous print")
+        acknowledge?(.success(()))
+        while reopened.running { await Task.yield() }
+        try require(reopened.orders.map(\.orderID) == ["2"], "Review entry lost after finishing remaining batch")
     }
 
     private static func runTests() throws {

@@ -4,23 +4,28 @@ import SwiftUI
 struct EtsyImportView: View {
     @ObservedObject var appStore: AppStore
     @Environment(\.dismiss) private var dismiss
-    @State private var selectedOrderID: String?
+    @State private var selectedIDs: Set<String>
 
     init(appStore: AppStore) {
         self.appStore = appStore
-        _selectedOrderID = State(initialValue: appStore.pendingEtsyOrders.first?.id)
+        _selectedIDs = State(initialValue: Set(appStore.pendingEtsyOrders.prefix(1).map(\.id)))
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 5) {
-                Text("Adresse aus Etsy übernehmen")
+                Text("Etsy-Bestellungen")
                     .font(.title2.weight(.semibold))
-                Text("Wähle eine Bestellung. Die Lieferadresse wird ins Brief-Formular eingetragen.")
-                    .foregroundStyle(.secondary)
+                HStack {
+                    Text("Mit ⌘-Klick wählst du mehrere Bestellungen aus.")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Alle auswählen") { selectedIDs = Set(appStore.pendingEtsyOrders.map(\.id)) }
+                        .buttonStyle(.link)
+                }
             }
 
-            List(appStore.pendingEtsyOrders, selection: $selectedOrderID) { order in
+            List(appStore.pendingEtsyOrders, selection: $selectedIDs) { order in
                 VStack(alignment: .leading, spacing: 3) {
                     Text(order.recipientName)
                         .fontWeight(.medium)
@@ -39,15 +44,19 @@ struct EtsyImportView: View {
                     dismiss()
                 }
                 Spacer()
-                Button("Adresse übernehmen") {
-                    guard let selectedOrderID,
-                          let order = appStore.pendingEtsyOrders.first(where: { $0.id == selectedOrderID }) else {
-                        return
-                    }
-                    appStore.applyEtsyOrder(order)
+                Button("Zum Sammeldruck (\(selectedIDs.count))") {
+                    appStore.collectCSVOrders(appStore.pendingEtsyOrders.filter { selectedIDs.contains($0.id) })
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(selectedOrderID == nil)
+                .disabled(selectedIDs.isEmpty || appStore.shippingBusy || appStore.orderBatch.storageError != nil)
+                if selectedIDs.count == 1 {
+                    Button("Adresse übernehmen") {
+                        if let order = appStore.pendingEtsyOrders.first(where: { selectedIDs.contains($0.id) }) {
+                            appStore.applyEtsyOrder(order)
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(appStore.shippingBusy)
+                }
             }
         }
         .padding(24)
