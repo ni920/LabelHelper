@@ -5,6 +5,7 @@ struct ShippingDraft: Codable, Equatable {
     let journey: ShippingRoute
     let recipient: RecipientAddress
     let browserOrder: BrowserOrderPayload?
+    var packingNote: String? = nil
     let csvOrderID: String?
     let withPostage: Bool
     let stampID: String

@@ -25,6 +25,7 @@ fi
 swiftc -parse-as-library -sdk "$SDKROOT" \
   -I "$BIN_PATH" -I "$BIN_PATH/Modules" \
   Sources/LabelHelper/Services/EtsyAddressLabelWriter.swift \
+  Sources/LabelHelper/Services/PackingSlipWriter.swift \
   Sources/LabelHelper/Services/LabelRenderer.swift \
   Tests/PrintLayoutTests.swift "${CORE_OBJECTS[@]}" \
   -o "$TEST_DIR/PrintLayoutTests"

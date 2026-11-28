@@ -60,6 +60,8 @@ struct PrintLayoutTests {
             }
             print("Address output: \(format.sizeDescription), \(raster.height) rows")
         }
+        let address = try EtsyAddressLabelWriter.makePDFData(recipient: short, sender: sender, format: shortFormat)
+        try checkPackingSlip(pdf: address, format: shortFormat)
         let longFormat = EtsyAddressLabelWriter.continuousFormat(recipient: long, sender: sender)
         try require(longFormat.heightMM > shortFormat.heightMM, "Long address must grow instead of clipping")
         for format in [LabelFormat.address89x36, .product100x50, .continuousLetter100x55] {
@@ -118,6 +120,9 @@ struct PrintLayoutTests {
                     try require(text.contains(field.filter { !$0.isWhitespace }.uppercased()), "Combined label lost \(field)")
                 }
                 let raster = try LabelRenderer.render(pdfData: label.data, format: label.format)
+                if recipient == recipients.first {
+                    try checkPackingSlip(pdf: label.data, format: label.format)
+                }
                 try checkPrintGeometry(raster, format: label.format)
                 let ink = raster.bitmap.reduce(0) { $0 + $1.nonzeroBitCount }
                 let dotsPerPoint: Double = LabelFormat.dotsPerMillimeter * 25.4 / 72
@@ -219,6 +224,26 @@ struct PrintLayoutTests {
             let format = EtsyAddressLabelWriter.continuousFormat(recipient: long, sender: sender, design: extreme)
             _ = try EtsyAddressLabelWriter.makePDFData(recipient: long, sender: sender, format: format, design: extreme)
         }
+    }
+
+    private static func checkPackingSlip(pdf: Data, format: LabelFormat) throws {
+        let original = try LabelRenderer.render(pdfData: pdf, format: format)
+        let (data, paper) = try PackingSlipWriter.append("1 × Capy Gold\n2 × Capy Blau", to: pdf,
+                                                       format: format, additionalFeedMM: 20)
+        let expected = ContinuousLabelCutGuide.printFormat(for: format, additionalFeedMM: 20)
+        try require(paper.heightDots == expected.heightDots, "A short note should use the existing feed")
+        let raster = try LabelRenderer.render(pdfData: data, format: paper)
+        let changedPixels = zip(raster.bitmap, original.bitmap).reduce(0) { $0 + ($1.0 ^ $1.1).nonzeroBitCount }
+        // Re-embedding vector text in PDF can move an antialiased edge across
+        // the one-bit threshold. Shifting or resizing the label affects many more dots.
+        try require(changedPixels <= original.width * original.height / 10_000, "Slip changed \(changedPixels) pixels of the shipping label")
+        let rows = original.height + 16
+        try require(raster.bitmap.dropFirst(rows * raster.bytesPerRow).contains { $0 != 0 }, "Packing strip is blank")
+        let text = PDFDocument(data: data)?.page(at: 0)?.string ?? ""
+        try require(text.contains("1 × Capy Gold") && text.contains("2 × Capy Blau"), "Missing packing lines")
+        let long = Array(repeating: "2 × Capy Blau", count: 12).joined(separator: "\n")
+        let (_, larger) = try PackingSlipWriter.append(long, to: pdf, format: format, additionalFeedMM: 0)
+        try require(larger.heightDots > paper.heightDots, "A multiline order must grow to fit")
     }
 
     private static func checkPrintGeometry(_ raster: LabelRaster, format: LabelFormat) throws {

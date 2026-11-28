@@ -88,6 +88,14 @@ struct LetterReviewView: View {
                 Label("Nur Adressetikett", systemImage: "envelope")
             }
 
+            if settings.continuous {
+                DisclosureGroup("Packhinweis") {
+                    TextField("Zum Beispiel 1 × Capy Gold", text: $appStore.packingNote, axis: .vertical)
+                        .lineLimit(1...6)
+                        .textFieldStyle(.roundedBorder)
+                        .padding(.top, 6)
+                }
+            }
             DisclosureGroup("Frankierung ändern") {
                 Form {
                     Toggle("Mit Briefmarke", isOn: $appStore.letterWithPostage)

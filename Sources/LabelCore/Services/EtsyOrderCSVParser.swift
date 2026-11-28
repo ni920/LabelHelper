@@ -59,7 +59,10 @@ public enum EtsyOrderCSVParser {
         }
 
         var orders: [EtsyOrder] = []
-        var seen = Set<String>()
+        var positions: [String: Int] = [:]
+        let titleIndex = index(["Item Name", "Listing Title", "Artikelname"])
+        let quantityIndex = index(["Quantity", "Qty", "Menge"])
+        let variantIndex = index(["Variations", "Varianten"])
         for (rowOffset, row) in rows.dropFirst().enumerated() {
             let name: String
             let fullName = value(row, fullNameIndex)
@@ -78,7 +81,19 @@ public enum EtsyOrderCSVParser {
 
             let exportedID = value(row, orderIndex)
             let identifier = exportedID.isEmpty ? "Zeile-\(rowOffset + 2)" : exportedID
-            guard seen.insert(identifier).inserted else { continue }
+            let title = value(row, titleIndex)
+            let quantity = Int(value(row, quantityIndex))
+            var line: String?
+            if !title.isEmpty, let quantity, quantity > 0 {
+                line = ["\(quantity) × \(title)", value(row, variantIndex)].filter { !$0.isEmpty }.joined(separator: " · ")
+            }
+            if let position = positions[identifier] {
+                if let line {
+                    orders[position].packingNote = [orders[position].packingNote, line].compactMap { $0 }.joined(separator: "\n")
+                }
+                continue
+            }
+            positions[identifier] = orders.count
 
             orders.append(EtsyOrder(
                 id: identifier,
@@ -90,6 +105,7 @@ public enum EtsyOrderCSVParser {
                 postalCode: postalCode,
                 country: value(row, countryIndex)
             ))
+            orders[orders.count - 1].packingNote = line
         }
 
         guard !orders.isEmpty else { throw EtsyOrderCSVError.noOrders }

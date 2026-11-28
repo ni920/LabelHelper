@@ -219,6 +219,16 @@ do {
     try require(etsyOrders[0].recipientAddress.isComplete, "Imported recipient address should be complete")
     try require(etsyOrders[0].recipientAddress.lines.first == "Mia Muster", "Recipient address lines are wrong")
 
+    let itemCSV = """
+    Order ID,Ship Name,Street 1,Ship City,Ship Zipcode,Item Name,Quantity,Variations
+    12345,Test,Weg 1,Stadt,12345,Capy,1,Gold
+    12345,Test,Weg 1,Stadt,12345,Capy,2,Blau
+    """
+    let grouped = try EtsyOrderCSVParser.parse(text: itemCSV)
+    try require(grouped.count == 1 && grouped[0].packingNote == "1 × Capy · Gold\n2 × Capy · Blau",
+                "Item export must preserve each ordered variant")
+    try require(etsyOrders[0].packingNote == nil, "Order-only CSV must not invent a packing note")
+
     let incompleteRecipient = RecipientAddress(
         name: "",
         street1: "Hauptstraße 1",

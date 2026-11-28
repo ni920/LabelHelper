@@ -1,9 +1,9 @@
 # Etsy mit Label Helper verbinden
 
 Die Erweiterung setzt unten rechts auf die Etsy-Bestellseite den Button
-**An Label Helper senden**. Er überträgt Bestellnummer und Empfängeradresse an
+**An Label Helper senden**. Er überträgt Bestellnummer, Empfängeradresse und verfügbare Bestellpositionen an
 die App auf deinem Mac. Du wählst dort Brief oder Paket und prüfst die Adresse.
-Artikeldaten werden nicht übertragen. Es wird nichts automatisch gedruckt.
+Menge, Artikel und Variante erscheinen bei Briefen auf Endlosrolle als abtrennbarer Packhinweis. Es wird nichts automatisch gedruckt.
 
 ## Welchen Weg soll ich nehmen?
 

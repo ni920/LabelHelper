@@ -70,6 +70,13 @@ public struct LabelFormat: Codable, Equatable, Hashable, Identifiable, Sendable 
         )
     }
 
+    private static let packingSlipID = "continuous-with-packing-slip"
+    public var includesCutGuide: Bool { id == Self.packingSlipID }
+
+    public static func continuousWithPackingSlip(widthMM: Double, heightMM: Double) -> LabelFormat {
+        LabelFormat(id: packingSlipID, name: "Endlosrolle · Mit Packhinweis", widthMM: widthMM, heightMM: heightMM)
+    }
+
     public static func normalizedLetterFormatID(_ storedID: String?) -> String {
         guard let storedID else { return address89x36.id }
         if storedID == "custom" || letterPresets.contains(where: { $0.id == storedID }) {

@@ -130,6 +130,7 @@ final class AppStore: ObservableObject {
     @Published var recipientCountry = "Deutschland"
     @Published private(set) var pendingEtsyOrders: [EtsyOrder] = []
     @Published private(set) var incomingBrowserOrder: BrowserOrderPayload?
+    @Published var packingNote = ""
     @Published private(set) var activeBrowserOrder: BrowserOrderPayload?
     @Published private(set) var activeCSVOrderID: String?
 
@@ -252,7 +253,7 @@ final class AppStore: ObservableObject {
     }
 
     func printedLabelFormat(_ contentFormat: LabelFormat) -> LabelFormat {
-        labelStockMode == .continuous100
+        labelStockMode == .continuous100 && !contentFormat.includesCutGuide
             ? ContinuousLabelCutGuide.printFormat(for: contentFormat, additionalFeedMM: continuousExtraFeedMM)
             : contentFormat
     }
@@ -264,7 +265,8 @@ final class AppStore: ObservableObject {
     }
 
     func renderLabel(_ job: PrintJob) throws -> LabelRaster {
-        applyingMaterialCutGuide(to: try LabelRenderer.render(url: job.sourceURL, format: job.resolvedLabelFormat))
+        let raster = try LabelRenderer.render(url: job.sourceURL, format: job.resolvedLabelFormat)
+        return job.resolvedLabelFormat.includesCutGuide ? raster : applyingMaterialCutGuide(to: raster)
     }
 
     var selectedLetterLabelFormat: LabelFormat {
@@ -415,6 +417,7 @@ final class AppStore: ObservableObject {
         guard !shippingBusy, let order = incomingBrowserOrder else { return }
         resetShippingDraft()
         applyRecipient(order.recipient)
+        packingNote = order.packingNote ?? ""
         activeBrowserOrder = order
         activeCSVOrderID = nil
         selectedShipmentKind = shipmentKind
@@ -645,6 +648,7 @@ final class AppStore: ObservableObject {
         guard !shippingBusy else { return }
         resetShippingDraft()
         applyRecipient(order.recipientAddress)
+        packingNote = order.packingNote ?? ""
         activeCSVOrderID = order.id
         shippingImportSequence &+= 1
         selectedShipmentKind = .letter
@@ -719,7 +723,7 @@ final class AppStore: ObservableObject {
     func shippingDraft(for journey: ShippingRoute) -> ShippingDraft? {
         guard journey.task != nil else { return nil }
         return ShippingDraft(journey: journey, recipient: recipientAddress, browserOrder: activeBrowserOrder,
-                             csvOrderID: activeCSVOrderID, withPostage: letterWithPostage,
+                             packingNote: packingNote, csvOrderID: activeCSVOrderID, withPostage: letterWithPostage,
                              stampID: selectedLetterPostageID,
                              postageIDs: journey.task == .postage ? selectedPostageIDs : [],
                              letterFlowID: draftLetterFlowID, addressJobID: draftAddressJobID)
@@ -730,6 +734,7 @@ final class AppStore: ObservableObject {
         do {
             let draft = try JSONDecoder().decode(ShippingDraft.self, from: Data(contentsOf: shippingDraftURL))
             applyRecipient(draft.recipient)
+            packingNote = draft.packingNote ?? ""
             activeBrowserOrder = draft.browserOrder
             activeCSVOrderID = draft.csvOrderID
             letterWithPostage = draft.withPostage
@@ -763,6 +768,7 @@ final class AppStore: ObservableObject {
     }
 
     func resetShippingDraft() {
+        packingNote = ""
         activeBrowserOrder = nil
         activeCSVOrderID = nil
         selectAvailablePostage(in: postage.entries)
@@ -846,7 +852,8 @@ final class AppStore: ObservableObject {
                                     needsStamp: letterWithPostage, combined: combinedLabel,
                                     stampPlacement: postageStampPlacement, design: addressLabelDesign,
                                     addressFormat: selectedLetterLabelFormat, stampFormat: selectedLetterPostageFormat,
-                                    continuous: labelStockMode == .continuous100, additionalFeedMM: continuousExtraFeedMM)
+                                    continuous: labelStockMode == .continuous100, additionalFeedMM: continuousExtraFeedMM,
+                                    packingNote: packingNote.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     func printReviewedLetter(_ plan: LetterPrintPlan) {

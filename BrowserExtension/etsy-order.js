@@ -97,15 +97,12 @@
   }
 
   function findOrderIDInData(data) {
-    let result = "";
-    walkJSON(data, (value, path) => {
-      if (result || Array.isArray(value)) return;
-      const candidate = objectValue(value, ["receipt_id", "order_id", "orderid", "receiptid"]);
-      if (candidate && /^\d{4,}$/.test(candidate) && /(receipt|order|transaction)/i.test(path.join("/"))) {
-        result = candidate;
-      }
+    const ids = new Set();
+    walkJSON(data, value => {
+      const id = objectValue(value, ["receipt_id", "order_id"]);
+      if (/^\d{4,}$/.test(id)) ids.add(id);
     });
-    return result;
+    return ids.size === 1 ? [...ids][0] : "";
   }
 
   function parseAddressLines(rawLines) {
@@ -192,30 +189,91 @@
   }
 
   function orderIDFromPage(url, text, dataDocuments) {
-    for (const data of dataDocuments) {
-      const result = findOrderIDInData(data);
-      if (result) return result;
-    }
     const parsed = new URL(url);
     const queryID = parsed.searchParams.get("order_id") || parsed.searchParams.get("receipt_id");
     if (queryID) return clean(queryID);
     const pathMatch = parsed.pathname.match(/(?:orders?|receipts?)\/(\d{4,})/i);
     if (pathMatch) return pathMatch[1];
-    const textMatch = text.match(/\b(?:Bestellung|Order|Receipt)\s*#?\s*(\d{4,})/i);
-    return textMatch?.[1] || "Unbekannt";
+    const visibleIDs = new Set(Array.from(text.matchAll(/\b(?:Bestellung|Order|Receipt)\s*#?\s*(\d{4,})/gi), m => m[1]));
+    if (visibleIDs.size === 1) return [...visibleIDs][0];
+    if (visibleIDs.size > 1) return "Unbekannt";
+    return findOrderIDInData(dataDocuments) || "Unbekannt";
+  }
+
+  function orderDetails(documents, orderID) {
+    let address = null;
+    let packingNote = "";
+    let hasOtherOrder = false;
+    for (const data of documents) {
+      walkJSON(data, (record) => {
+        const id = objectValue(record, ["order_id", "receipt_id"]);
+        if (!id) return;
+        if (id !== orderID) {
+          hasOtherOrder = true;
+          return;
+        }
+        const shipping = record.shipping_address || record.shippingAddress || record;
+        if (!isCompleteAddress(address)) address = findAddressInData(shipping);
+        const rows = record.transactions || record.line_items || record.items;
+        if (packingNote || !Array.isArray(rows)) return;
+        const lines = rows.map((row) => {
+          const title = objectValue(row, ["title", "listing_title", "product_name"]) ||
+            objectValue(row?.listing, ["title"]);
+          const qty = objectValue(row, ["quantity", "qty"]);
+          if (!title || !/^[1-9]\d*$/.test(qty)) return "";
+          const variations = Array.isArray(row.variations) ? row.variations : [];
+          const values = variations.map((v) => objectValue(v, ["formatted_value", "value"])).filter(Boolean);
+          return [qty + " × " + title, ...values].join(" · ");
+        });
+        if (lines.every(Boolean)) packingNote = lines.join("\n");
+      });
+    }
+    return { address, packingNote, hasOtherOrder };
+  }
+
+  function visiblePackingNote(container) {
+    let rows = Array.from(container.querySelectorAll("[data-transaction-id]"));
+    if (!rows.length) {
+      const links = Array.from(container.querySelectorAll('a[href*="/listing/"]'));
+      rows = [...new Set(links.map(link => link.closest("li,article")).filter(Boolean))];
+    }
+    const lines = rows.map((row) => {
+      const link = Array.from(row.querySelectorAll('a[href*="/listing/"]')).find(
+        link => clean(link.textContent || link.getAttribute("aria-label"))
+      );
+      const title = clean(link?.textContent || link?.getAttribute("aria-label"));
+      const quantity = row.innerText?.match(/(?:Menge|Stückzahl|Quantity|Qty)\s*:?\s*(\d+)/i)?.[1];
+      if (!title || !quantity) return "";
+      const variant = Array.from(row.innerText.matchAll(/(?:Farbe|Color|Größe|Size|Variante|Style|Modell)\s*:\s*([^\n]+)/gi), m => clean(m[1]));
+      return [quantity + " × " + title, ...variant].join(" · ");
+    });
+    return lines.every(Boolean) ? lines.join("\n") : "";
   }
 
   function extractOrder(document, url = document.location.href) {
     const documents = jsonDocuments(document);
-    let recipient = null;
-    for (const data of documents) {
-      if (!recipient) recipient = findAddressInData(data);
+    const dialog = document.querySelector?.('[role="dialog"][aria-modal="true"],dialog[open]');
+    const orderID = orderIDFromPage(url, String(dialog?.innerText || document.body?.innerText || ""), documents);
+    const details = orderDetails(documents, orderID);
+    let panel = null;
+    if (/^\d+$/.test(orderID)) {
+      panel = document.querySelector?.(`[data-order-id="${orderID}"],[data-receipt-id="${orderID}"]`);
+      if (!panel) {
+        const orderNumber = new RegExp("\\b" + orderID + "\\b");
+        panel = Array.from(document.querySelectorAll('[role="dialog"],dialog[open]'))
+          .find(dialog => orderNumber.test(dialog.innerText || ""));
+      }
     }
-    if (!isCompleteAddress(recipient)) recipient = addressFromDocument(document);
-
+    let recipient = details.address;
+    if (!isCompleteAddress(recipient) && (panel || !details.hasOtherOrder)) recipient = addressFromDocument(panel || document);
+    if (!isCompleteAddress(recipient) && !details.hasOtherOrder) {
+      recipient = documents.map(data => findAddressInData(data)).find(isCompleteAddress);
+    }
+    const packingNote = details.packingNote || (panel ? visiblePackingNote(panel) : "");
     return {
       version: 1,
-      orderID: orderIDFromPage(url, String(document.body?.innerText || ""), documents),
+      orderID,
+      packingNote,
       recipient: recipient || { name: "", street1: "", street2: "", postalCode: "", city: "", state: "", country: "" },
       sourceURL: url
     };
@@ -233,6 +291,7 @@
       version: payload.version,
       orderID: payload.orderID,
       recipient: payload.recipient,
+      packingNote: payload.packingNote || undefined,
       sourceURL: payload.sourceURL
     };
     // Older Label Helper installations must still be able to open these links.

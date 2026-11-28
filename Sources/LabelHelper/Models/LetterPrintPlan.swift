@@ -13,6 +13,7 @@ struct LetterReviewSettings: Equatable {
     let stampFormat: LabelFormat
     let continuous: Bool
     let additionalFeedMM: Double
+    let packingNote: String
 }
 
 struct LetterPrintPlan {
@@ -27,9 +28,13 @@ struct LetterPrintPlan {
     let pages: [Page]
 
     static func make(for settings: LetterReviewSettings) throws -> Self {
-        func page(_ title: String, _ pdf: Data, _ format: LabelFormat) throws -> Page {
+        func page(_ title: String, _ source: Data, _ sourceFormat: LabelFormat, includesAddress: Bool) throws -> Page {
+            let (pdf, format) = settings.continuous && includesAddress && !settings.packingNote.isEmpty
+                ? try PackingSlipWriter.append(settings.packingNote, to: source, format: sourceFormat,
+                                               additionalFeedMM: settings.additionalFeedMM)
+                : (source, sourceFormat)
             let content = try LabelRenderer.render(pdfData: pdf, format: format)
-            let raster = settings.continuous
+            let raster = settings.continuous && !format.includesCutGuide
                 ? ContinuousLabelCutGuide.applying(to: content, additionalFeedMM: settings.additionalFeedMM)
                 : content
             guard let image = LabelPreviewRenderer.image(from: raster) else { throw LabelRendererError.cannotCreateBitmap }
@@ -43,16 +48,16 @@ struct LetterPrintPlan {
                 continuous: settings.continuous, settings: settings.combined,
                 placement: settings.stampPlacement, design: settings.design
             )
-            return try Self(settings: settings, pages: [page("Adresse und Briefmarke", label.data, label.format)])
+            return try Self(settings: settings, pages: [page("Adresse und Briefmarke", label.data, label.format, includesAddress: true)])
         }
 
         let address = try EtsyAddressLabelWriter.makePDFData(recipient: settings.recipient, sender: settings.sender,
                                                              format: settings.addressFormat, design: settings.design)
-        var pages = try [page("Adresse", address, settings.addressFormat)]
+        var pages = try [page("Adresse", address, settings.addressFormat, includesAddress: true)]
         if let stamp = settings.stamp {
             let sheet = try PostagePDFService.singleStampSheet(stamp, format: settings.stampFormat,
                 fitHeightToContent: settings.continuous, placement: settings.stampPlacement)
-            pages.append(try page("Briefmarke", sheet.data, sheet.format))
+            pages.append(try page("Briefmarke", sheet.data, sheet.format, includesAddress: false))
         }
         return Self(settings: settings, pages: pages)
     }

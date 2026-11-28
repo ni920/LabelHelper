@@ -113,7 +113,7 @@ test("finds order and address in nested Etsy data", () => {
   assert.equal(findAddressInData(data).street1, "Hauptstraße 1");
 });
 
-test("builds a URL-safe app link without transferring item data", () => {
+test("builds a URL-safe app link including the packing note", () => {
   const url = buildAppURL({
     version: 1,
     orderID: "123",
@@ -126,12 +126,40 @@ test("builds a URL-safe app link without transferring item data", () => {
       state: "",
       country: "Deutschland"
     },
-    items: [{ title: "Größe L", quantity: 1 }],
+    packingNote: "1 × Capy · Gold",
     sourceURL: "https://www.etsy.com/your/orders/123"
   });
   assert.match(url, /^munbyn-labeler:\/\/etsy-order\?payload=[A-Za-z0-9_-]+$/);
   const encoded = new URL(url).searchParams.get("payload");
   const decoded = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
   assert.equal(decoded.recipient.name, "Mia Müller");
-  assert.equal("items" in decoded, false);
+  assert.equal(decoded.packingNote, "1 × Capy · Gold");
+});
+
+test("keeps address, quantities and variants with the explicitly selected order", () => {
+  const receipt = (id, name, transactions) => ({
+    receipt_id: id, shipping_address: { name, first_line: "Weg 1", zip: "12345", city: "Test" }, transactions
+  });
+  const document = documentFixture({ scripts: [JSON.stringify([
+    receipt(2345, "Other", [{ title: "Other item", quantity: 9 }]),
+    receipt(6789, "Selected", [{ title: "Capy", quantity: 1, variations: [{ formatted_value: "Gold" }] },
+      { title: "Capy", quantity: 2, variations: [{ value: "Blau" }] }])
+  ])] });
+  const order = extractOrder(document, "https://www.etsy.com/your/orders/sold?order_id=6789");
+  assert.equal(order.packingNote, "1 × Capy · Gold\n2 × Capy · Blau");
+  assert.equal(order.recipient.name, "Selected");
+  const overview = extractOrder(document, "https://www.etsy.com/your/orders/sold");
+  assert.equal(overview.packingNote, "");
+  assert.equal(isCompleteAddress(overview.recipient), false);
+  const unknown = extractOrder(document, "https://www.etsy.com/your/orders/sold?order_id=9999");
+  assert.equal(unknown.packingNote, "");
+  assert.equal(isCompleteAddress(unknown.recipient), false);
+});
+
+test("reads visible quantity and colour inside the selected order panel", () => {
+  const document = documentFixture({ addressLines: ["Versand an", "Test", "Weg 1", "12345 Test"] });
+  const row = { innerText: "Capy\nMenge: 2\nFarbe: Gold", querySelectorAll: () => [{ textContent: "Capy" }] };
+  const panel = { querySelectorAll: selector => selector === "[data-transaction-id]" ? [row] : document.querySelectorAll(selector) };
+  document.querySelector = () => panel;
+  assert.equal(extractOrder(document, "https://www.etsy.com/your/orders/12345").packingNote, "2 × Capy · Gold");
 });

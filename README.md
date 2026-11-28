@@ -165,9 +165,7 @@ gemeinsamen Etikett drucken, sodass die Marke nicht ausgeschnitten werden muss.
 ## Etsy-Browser-Erweiterung
 
 Die Erweiterung ergänzt geöffnete Etsy-Bestellungen um **An Label Helper
-senden**. Übertragen werden nur Bestellnummer und Empfängeradresse – lokal über
-den App-Link `munbyn-labeler://etsy-order`. Artikeldaten werden nicht gelesen
-und es wird niemals automatisch gedruckt.
+senden**. Die Erweiterung übergibt Bestellnummer, Empfängeradresse und verfügbare Artikel mit Menge und Variante lokal über den App-Link `munbyn-labeler://etsy-order`. Bei Briefen auf Endlosrolle erscheint der Packhinweis unter der Schnittlinie. In der Briefvorschau kannst du ihn ändern, ergänzen oder leeren.
 
 ### Einfacher Einstieg ab Version 0.8.6
 

@@ -2,6 +2,7 @@ import Foundation
 
 public struct EtsyOrder: Identifiable, Codable, Equatable, Sendable {
     public let id: String
+    public internal(set) var packingNote: String?
     public let recipientName: String
     public let street1: String
     public let street2: String

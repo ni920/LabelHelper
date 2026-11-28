@@ -4,14 +4,17 @@ public struct BrowserOrderPayload: Codable, Equatable, Sendable {
     public let version: Int
     public let orderID: String
     public let recipient: RecipientAddress
+    public let packingNote: String?
     public let sourceURL: String?
 
     public init(
         version: Int = 1,
         orderID: String,
         recipient: RecipientAddress,
-        sourceURL: String? = nil
+        sourceURL: String? = nil,
+        packingNote: String? = nil
     ) {
+        self.packingNote = packingNote
         self.version = version
         self.orderID = orderID
         self.recipient = recipient
