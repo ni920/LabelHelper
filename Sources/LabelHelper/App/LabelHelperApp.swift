@@ -60,7 +60,7 @@ struct LabelHelperApp: App {
                 }
                 .keyboardShortcut("o")
 
-                Button("Briefmarken-Bündel importieren …") { appStore.showPostageImporter = true }
+                Button("Briefmarken-Bündel importieren …") { appStore.requestFileImport(.postage) }
 
                 Button("Drucker verbinden …") {
                     appStore.showPrinterConnection = true
@@ -68,7 +68,7 @@ struct LabelHelperApp: App {
                 .keyboardShortcut("r")
 
                 Button("Etsy-Adresse aus CSV übernehmen …") {
-                    appStore.showEtsyImporter = true
+                    appStore.requestFileImport(.etsyCSV)
                 }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
             }

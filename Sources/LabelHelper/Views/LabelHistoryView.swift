@@ -8,6 +8,7 @@ struct LabelHistoryView: View {
     @ObservedObject var labels: LabelHistoryStore
     @ObservedObject var jobs: PrintJobStore
     @State private var search = ""
+    @State private var selectedID: UUID?
 
     private enum Item: Identifiable {
         case letter(LetterShipmentFlow)
@@ -57,77 +58,117 @@ struct LabelHistoryView: View {
         Group {
             if items.isEmpty {
                 ContentUnavailableView("Noch keine Labels", systemImage: "clock.arrow.circlepath",
-                    description: Text(letters.storageError ?? labels.storageError ?? "Gedruckte Briefe und Paketlabel erscheinen hier mit ihrer Sendungsnummer."))
+                    description: Text(letters.storageError ?? labels.storageError ?? "Hier findest du vorbereitete und gedruckte Etiketten."))
             } else if visibleItems.isEmpty {
                 ContentUnavailableView.search(text: search)
             } else {
-                List(visibleItems) { item in
-                    switch item {
-                    case .letter(let flow): letterRow(flow)
-                    case .label(let record): labelRow(record)
-                    case .stampSheet(let job): stampSheetRow(job)
+                HSplitView {
+                    List(visibleItems, selection: $selectedID) { item in
+                        historyRow(item).tag(item.id)
                     }
+                    .frame(minWidth: 235, idealWidth: 300)
+
+                    ScrollView {
+                        if let item = visibleItems.first(where: { $0.id == selectedID }) {
+                            historyDetail(item)
+                                .id(item.id)
+                                .padding(24)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        } else {
+                            ContentUnavailableView("Etikett auswählen", systemImage: "doc.text.magnifyingglass")
+                        }
+                    }
+                    .frame(minWidth: 255)
+                }
+                .onChange(of: visibleItems.map(\.id), initial: true) { _, ids in
+                    if selectedID.map(ids.contains) != true { selectedID = ids.first }
                 }
             }
         }
         .navigationTitle("Label-Verlauf")
         .searchable(text: $search, prompt: "Name, Bestellung oder Sendungsnummer")
         .toolbar {
-            Button("Verlauf exportieren …", action: appStore.exportHistory)
-                .help("Label-Verlauf als CSV-Datei speichern")
-                .disabled(items.isEmpty && appStore.jobs.jobs.isEmpty)
+            Button(action: appStore.exportHistory) {
+                Label("CSV exportieren …", systemImage: "square.and.arrow.up")
+            }
+            .disabled(items.isEmpty && jobs.jobs.isEmpty)
         }
     }
 
-    private func letterRow(_ flow: LetterShipmentFlow) -> some View {
-        HStack(spacing: 14) {
-            kindIcon("envelope")
+    private func historyRow(_ item: Item) -> some View {
+        Label {
             VStack(alignment: .leading, spacing: 4) {
-                Text(flow.recipientName).font(.headline)
-                if let order = flow.orderID { Text("Etsy #\(order)").font(.caption).foregroundStyle(.secondary) }
-                Text(flow.statusTitle).font(.callout).foregroundStyle(flow.stage == .completed ? .green : .secondary)
-                dateText(flow.createdAt)
+                Text(title(item)).font(.headline).lineLimit(1)
+                Text(item.date.formatted(date: .abbreviated, time: .shortened))
+                    .font(.caption).foregroundStyle(.secondary)
             }
-            Spacer()
-            PostageTrackingNumberView(stamp: flow.stamp)
-            Button(flow.stage == .completed ? "Erneut drucken …" : "Öffnen / fortsetzen") { appStore.letterFlowPreview = flow }
+        } icon: {
+            Image(systemName: icon(item)).accessibilityHidden(true)
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 5)
     }
 
-    private func labelRow(_ record: LabelHistoryRecord) -> some View {
-        HStack(spacing: 14) {
-            kindIcon(record.kind == .parcel ? "shippingbox" : record.kind == .addressLetter ? "envelope" : "doc")
-            VStack(alignment: .leading, spacing: 4) {
-                Text(record.title).font(.headline).lineLimit(2)
-                Text(detail(record)).font(.caption).foregroundStyle(.secondary).lineLimit(2).textSelection(.enabled)
-                Text(record.status.label).font(.callout).foregroundStyle(statusColor(record.status))
-                if let error = record.errorMessage { Text(error).font(.caption).foregroundStyle(.red) }
-                dateText(record.createdAt)
-            }
-            Spacer()
-            if let number = record.trackingNumber { TrackingNumberView(number: number) }
-            if let job = jobs.jobs.first(where: { $0.id == record.id }) {
-                Button("Öffnen …") { appStore.presentPrintPreview(job) }
-                    .disabled(job.status == .printing || appStore.shippingBusy)
-            }
+    private func historyDetail(_ item: Item) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Label(title(item), systemImage: icon(item))
+                .font(.title2.weight(.semibold))
+                .fixedSize(horizontal: false, vertical: true)
+            Text(item.date.formatted(date: .long, time: .shortened))
+                .foregroundStyle(.secondary)
 
+            switch item {
+            case .letter(let flow):
+                Text(flow.statusTitle)
+                if let order = flow.orderID { LabeledContent("Etsy", value: "#\(order)") }
+                PostageTrackingNumberView(stamp: flow.stamp)
+                if let error = flow.errorMessage {
+                    Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+                }
+                Button(flow.stage == .completed ? "Etikett öffnen …" : "Fortsetzen …") {
+                    appStore.letterFlowPreview = flow
+                }
+                .disabled(appStore.shippingBusy)
+            case .label(let record):
+                Text(detail(record)).textSelection(.enabled)
+                LabeledContent("Status", value: record.status.label)
+                LabeledContent("Format", value: record.labelFormat.sizeDescription)
+                if let number = record.trackingNumber { TrackingNumberView(number: number) }
+                if let error = record.errorMessage {
+                    Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+                }
+                if let job = jobs.jobs.first(where: { $0.id == record.id }) {
+                    Button("Etikett öffnen …") { appStore.presentPrintPreview(job) }
+                        .disabled(appStore.shippingBusy)
+                }
+            case .stampSheet(let job):
+                LabeledContent("Status", value: job.status.label)
+                let tracking = (job.postageStampIDs ?? []).compactMap(PostageStamp.trackingNumber(forID:))
+                ForEach(tracking, id: \.self) { TrackingNumberView(number: $0) }
+                Button("Etikett öffnen …") { appStore.presentPrintPreview(job) }
+                    .disabled(appStore.shippingBusy)
+            }
         }
-        .padding(.vertical, 6)
     }
 
-    private func stampSheetRow(_ job: PrintJob) -> some View {
-        HStack(spacing: 14) {
-            kindIcon("rectangle.stack")
-            VStack(alignment: .leading, spacing: 4) {
-                Text(job.title).font(.headline)
-                Text(job.status.label).font(.callout).foregroundStyle(statusColor(job.status))
-                dateText(job.createdAt)
+    private func title(_ item: Item) -> String {
+        switch item {
+        case .letter(let flow): flow.recipientName
+        case .label(let record): record.title
+        case .stampSheet(let job): job.title
+        }
+    }
+
+    private func icon(_ item: Item) -> String {
+        switch item {
+        case .letter: "envelope"
+        case .label(let record):
+            switch record.kind {
+            case .parcel: "shippingbox"
+            case .addressLetter: "envelope"
+            default: "doc"
             }
-            Spacer()
-            Button("Öffnen …") { appStore.presentPrintPreview(job) }
-                .disabled(job.status == .printing || appStore.shippingBusy)
-        }.padding(.vertical, 6)
+        case .stampSheet: "rectangle.stack"
+        }
     }
 
     private func detail(_ record: LabelHistoryRecord) -> String {
@@ -136,22 +177,6 @@ struct LabelHistoryView: View {
         let head = [record.product ?? record.kind.title, order, cart].compactMap { $0 }.joined(separator: " · ")
         let address = record.addressLines.dropFirst().joined(separator: ", ")
         return address.isEmpty ? head : "\(head)\n\(address)"
-    }
-
-    private func kindIcon(_ name: String) -> some View {
-        Image(systemName: name).font(.title3).foregroundStyle(.secondary).frame(width: 26).accessibilityHidden(true)
-    }
-
-    private func dateText(_ date: Date) -> some View {
-        Text(date.formatted(.dateTime.day().month().hour().minute())).font(.caption).foregroundStyle(.secondary)
-    }
-
-    private func statusColor(_ status: PrintJob.Status) -> Color {
-        switch status {
-        case .printed: .green
-        case .failed: .red
-        case .ready, .printing: .secondary
-        }
     }
 }
 

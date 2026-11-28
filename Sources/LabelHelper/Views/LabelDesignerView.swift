@@ -83,27 +83,29 @@ struct LabelDesignerView: View {
             LabelPaperCanvas(image: image, placeholder: error, raster: previewKind == .address || input.combined.isEnabled)
                 .frame(height: 170)
             Form {
-                Section("Absender") {
-                    placementPicker("Position", selection: $appStore.addressLabelDesign.senderPlacement,
-                                    options: AddressLabelDesign.SenderPlacement.allCases, title: \.title)
-                    if appStore.addressLabelDesign.senderPlacement != .hidden {
-                        placementPicker("Ausrichtung", selection: $appStore.addressLabelDesign.senderAlignment,
+                Section("Adresslayout") {
+                    DisclosureGroup("Absender") {
+                        placementPicker("Position", selection: $appStore.addressLabelDesign.senderPlacement,
+                                        options: AddressLabelDesign.SenderPlacement.allCases, title: \.title)
+                        if appStore.addressLabelDesign.senderPlacement != .hidden {
+                            placementPicker("Ausrichtung", selection: $appStore.addressLabelDesign.senderAlignment,
+                                            options: AddressLabelDesign.HorizontalPlacement.allCases, title: \.title)
+                            scaleSlider("Größe", value: $appStore.addressLabelDesign.senderScale)
+                            Toggle("Trennlinie zur Adresse", isOn: $appStore.addressLabelDesign.showsSeparator)
+                        }
+                    }
+                    DisclosureGroup("Empfänger") {
+                        placementPicker("Ausrichtung", selection: $appStore.addressLabelDesign.recipientAlignment,
                                         options: AddressLabelDesign.HorizontalPlacement.allCases, title: \.title)
-                        scaleSlider("Größe", value: $appStore.addressLabelDesign.senderScale)
-                        Toggle("Trennlinie zur Adresse", isOn: $appStore.addressLabelDesign.showsSeparator)
+                        if !input.continuous {
+                            placementPicker("Höhe", selection: $appStore.addressLabelDesign.recipientVerticalPlacement,
+                                            options: AddressLabelDesign.VerticalPlacement.allCases, title: \.title)
+                        }
+                        scaleSlider("Größe", value: $appStore.addressLabelDesign.recipientScale)
+                        placementPicker("Schriftstärke", selection: $appStore.addressLabelDesign.recipientWeight,
+                                        options: AddressLabelDesign.Weight.allCases, title: \.title)
+                        Toggle("Name hervorheben", isOn: $appStore.addressLabelDesign.emphasizesName)
                     }
-                }
-                Section("Empfänger") {
-                    placementPicker("Ausrichtung", selection: $appStore.addressLabelDesign.recipientAlignment,
-                                    options: AddressLabelDesign.HorizontalPlacement.allCases, title: \.title)
-                    if !input.continuous {
-                        placementPicker("Höhe", selection: $appStore.addressLabelDesign.recipientVerticalPlacement,
-                                        options: AddressLabelDesign.VerticalPlacement.allCases, title: \.title)
-                    }
-                    scaleSlider("Größe", value: $appStore.addressLabelDesign.recipientScale)
-                    placementPicker("Schriftstärke", selection: $appStore.addressLabelDesign.recipientWeight,
-                                    options: AddressLabelDesign.Weight.allCases, title: \.title)
-                    Toggle("Name hervorheben", isOn: $appStore.addressLabelDesign.emphasizesName)
                 }
                 Section("Briefmarke") {
                     Toggle("Adresse und Briefmarke auf einem Etikett", isOn: $appStore.combinedLabel.isEnabled)
@@ -134,8 +136,7 @@ struct LabelDesignerView: View {
                     }
                 }
                 Section {
-                    Text("Gilt für neue Briefetiketten und Briefmarken. Bereits vorbereitete Etiketten und DHL-Paketlabel bleiben unverändert, Briefmarken behalten immer ihre Originalgröße.")
-                        .font(.callout)
+                    Text("Das Layout gilt für neue Briefetiketten und Briefmarken.").font(.callout)
                     Button("Auf Standard zurücksetzen") {
                         appStore.addressLabelDesign = .standard
                         appStore.postageStampPlacement = .standard

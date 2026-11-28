@@ -3,7 +3,6 @@ import SwiftUI
 
 struct BrowserOrderReviewView: View {
     @ObservedObject var appStore: AppStore
-    @State private var shipmentKind: ShipmentKind = .letter
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -32,28 +31,9 @@ struct BrowserOrderReviewView: View {
                     .padding(.vertical, 4)
                 }
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Was möchtest du versenden?")
-                        .font(.headline)
-                    Picker("Versandart", selection: $shipmentKind) {
-                        ForEach(ShipmentKind.allCases) { kind in
-                            Label(kind.title, systemImage: kind.icon).tag(kind)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                }
-
-                if shipmentKind == .letter && !appStore.senderAddress.isComplete {
-                    HStack {
-                        Label("Bitte den Absender einmal in den Einstellungen hinterlegen.", systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(.orange)
-                        Spacer()
-                        SettingsLink {
-                            Text("Einstellungen")
-                        }
-                    }
-                    .font(.callout)
+                if !appStore.recipientName.isEmpty && appStore.draftLetterFlowID == nil && appStore.draftAddressJobID == nil {
+                    Text("Die Bestellung ersetzt den aktuellen Versandentwurf.")
+                        .font(.callout).foregroundStyle(.secondary)
                 }
             } else {
                 ContentUnavailableView("Keine Bestellung", systemImage: "cart")
@@ -64,11 +44,12 @@ struct BrowserOrderReviewView: View {
                     appStore.dismissIncomingBrowserOrder()
                 }
                 Spacer()
-                Button(shipmentKind == .letter ? "Brief vorbereiten" : "Paket vorbereiten") {
-                    appStore.acceptIncomingBrowserOrder(as: shipmentKind)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(order == nil)
+                Button("Paketlabel öffnen …") { appStore.acceptIncomingBrowserOrder(as: .parcel) }
+                    .disabled(order == nil || appStore.shippingBusy)
+                Button("Brief vorbereiten") { appStore.acceptIncomingBrowserOrder(as: .letter) }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(order == nil || appStore.shippingBusy)
             }
         }
         .padding(24)

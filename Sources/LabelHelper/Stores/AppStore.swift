@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 import LabelCore
 import UniformTypeIdentifiers
@@ -19,9 +20,23 @@ final class AppStore: ObservableObject {
         }
     }
 
-    @Published var guidedMode: Bool {
-        didSet { defaults.set(guidedMode, forKey: "guidedMode") }
+    enum FileImport: Equatable {
+        case label, dhl, postage, etsyCSV
+
+        var contentTypes: [UTType] {
+            switch self {
+            case .label: [.pdf, .png, .jpeg]
+            case .dhl, .postage: [.pdf]
+            case .etsyCSV: [.commaSeparatedText]
+            }
+        }
     }
+
+    private enum ImportRequest {
+        case file(FileImport)
+        case browser(BrowserOrderPayload)
+    }
+
     @Published var showPrinterConnection = false
     @Published private(set) var homeRequestSequence = 0
     @Published private(set) var draftHomeSequence = 0
@@ -31,13 +46,14 @@ final class AppStore: ObservableObject {
     @Published private(set) var lastImportedLabelJobID: UUID?
     @Published private(set) var postageImportSucceeded = false
     @Published var showImporter = false
-    @Published var showDHLImporter = false
+    @Published private(set) var fileImport: FileImport?
+    private var pendingImports: [ImportRequest] = []
+    private var dismissingPreviewForImport = false
     @Published private(set) var parcelImportError: String?
-    @Published var showPostageImporter = false
     @Published var postagePreview: PostagePrintBatch?
     @Published var letterFlowPreview: LetterShipmentFlow?
     @Published var selectedLetterPostageID = ""
-    @Published var letterWithPostage = false
+    @Published var letterWithPostage = true
     @Published private(set) var draftLetterFlowID: UUID?
     @Published private(set) var draftAddressJobID: UUID?
     @Published var selectedPostageIDs: Set<String> = []
@@ -51,13 +67,11 @@ final class AppStore: ObservableObject {
     private var postageBatchTotal = 0
     private var postageBatchCompleted = 0
     private var stopPostageBatch = false
-    @Published var showEtsyImporter = false
     @Published var showEtsyImportReview = false
     @Published var showEtsyImportError = false
     @Published var showBrowserOrderReview = false
     @Published var lastMessage: String?
     @Published var historyExportError: String?
-    @Published var selectedJobID: UUID?
     @Published var previewJob: PrintJob?
     @Published var selectedShipmentKind: ShipmentKind {
         didSet {
@@ -118,7 +132,6 @@ final class AppStore: ObservableObject {
     @Published private(set) var incomingBrowserOrder: BrowserOrderPayload?
     @Published private(set) var activeBrowserOrder: BrowserOrderPayload?
     @Published private(set) var activeCSVOrderID: String?
-    @Published private(set) var browserImportSequence = 0
 
     let bluetooth = BluetoothPrinterService()
     let jobs: PrintJobStore
@@ -137,6 +150,7 @@ final class AppStore: ObservableObject {
         }
     )
     private let defaults: UserDefaults
+    private var postageObservation: AnyCancellable?
 
     private enum Keys {
         static let selectedFormatID = "selectedLabelFormatID"
@@ -169,7 +183,6 @@ final class AppStore: ObservableObject {
             history?.updateStatus(id, status: status, errorMessage: errorMessage)
         }
         labelHistory = history
-        guidedMode = defaults.object(forKey: "guidedMode") as? Bool ?? true
         let initialShipmentKind = ShipmentKind(
             rawValue: defaults.string(forKey: Keys.selectedShipmentKind) ?? ""
         ) ?? .letter
@@ -197,6 +210,18 @@ final class AppStore: ObservableObject {
         lastMessage = applicationDataLocation.warning ?? (applicationDataLocation.migratedLegacyData
             ? "Die lokalen App-Daten wurden sicher in den neuen Label-Helper-Ordner verschoben."
             : nil)
+        postageObservation = postage.$entries.sink { [weak self] entries in
+            self?.selectAvailablePostage(in: entries)
+        }
+    }
+
+    private func selectAvailablePostage(in entries: [PostageStampStore.Entry]) {
+        let previous = entries.first { $0.id == selectedLetterPostageID }
+        guard previous?.status != .available else { return }
+        let available = entries.filter { $0.status == .available }
+        let next = available.first { $0.stamp.amount == previous?.stamp.amount } ?? available.first
+        let id = next?.id ?? ""
+        if selectedLetterPostageID != id { selectedLetterPostageID = id }
     }
 
     var canManageApplicationData: Bool {
@@ -294,7 +319,6 @@ final class AppStore: ObservableObject {
                 let importFormat = selectedLabelFormat.usesAutomaticHeight ? LabelFormat.continuousLetter100x55 : selectedLabelFormat
                 let job = try jobs.enqueue(url: url, labelFormat: importFormat)
                 recordImportedLabel(job)
-                selectedJobID = job.id
                 lastImportedJob = job
                 lastMessage = job.status == .printed
                     ? "Dieses Etikett wurde bereits gedruckt."
@@ -305,10 +329,7 @@ final class AppStore: ObservableObject {
         }
 
         if let lastImportedJob {
-            // The file importer must finish dismissing before another sheet can open.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                self?.presentPrintPreview(lastImportedJob)
-            }
+            presentPrintPreview(lastImportedJob)
         }
     }
 
@@ -329,17 +350,64 @@ final class AppStore: ObservableObject {
     }
 
     func handleIncomingURL(_ url: URL) {
-        do {
-            let order = try BrowserOrderLink.decode(url)
+        do { enqueueImport(.browser(try BrowserOrderLink.decode(url))) }
+        catch { lastMessage = "Browser-Import fehlgeschlagen: \(error.localizedDescription)" }
+    }
+
+    func requestFileImport(_ kind: FileImport) {
+        enqueueImport(.file(kind))
+    }
+
+    private func enqueueImport(_ request: ImportRequest) {
+        pendingImports.append(request)
+        presentNextImport()
+    }
+
+    func presentNextImport() {
+        guard !pendingImports.isEmpty, !shippingBusy, fileImport == nil, !dismissingPreviewForImport,
+              !showBrowserOrderReview, !showEtsyImportReview, !showEtsyImportError else { return }
+        if previewJob != nil || letterFlowPreview != nil || postagePreview != nil {
+            dismissingPreviewForImport = true
+            closeShippingPreviews()
+            return
+        }
+        switch pendingImports.removeFirst() {
+        case .file(let kind):
+            fileImport = kind
+            showImporter = true
+        case .browser(let order):
             incomingBrowserOrder = order
             showBrowserOrderReview = true
-            browserImportSequence &+= 1
-            lastMessage = "Etsy-Bestellung #\(order.orderID) wurde aus dem Browser empfangen."
-            NSApp.activate(ignoringOtherApps: true)
-        } catch {
-            incomingBrowserOrder = nil
-            showBrowserOrderReview = false
-            lastMessage = "Browser-Import fehlgeschlagen: \(error.localizedDescription)"
+        }
+    }
+
+    func importSheetDismissed() {
+        dismissingPreviewForImport = false
+        presentNextImport()
+    }
+
+    func finishFileImport(_ result: Result<[URL], Error>? = nil) {
+        guard let kind = fileImport else { return }
+        showImporter = false
+        // Give the system open panel time to dismiss before presenting a review.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self else { return }
+            self.fileImport = nil
+            switch result {
+            case .success(let urls):
+                switch kind {
+                case .label: self.importFiles(urls)
+                case .dhl: if let url = urls.first { self.importDHLLabel(url) }
+                case .postage: if let url = urls.first { self.importPostageBundle(url) }
+                case .etsyCSV: if let url = urls.first { self.loadEtsyCSV(url) }
+                }
+            case .failure(let error):
+                if kind == .dhl { self.reportDHLImportError(error) }
+                else { self.lastMessage = error.localizedDescription }
+            case nil:
+                break
+            }
+            if self.previewJob == nil { self.presentNextImport() }
         }
     }
 
@@ -352,11 +420,8 @@ final class AppStore: ObservableObject {
         selectedShipmentKind = shipmentKind
         shippingImportSequence &+= 1
         incomingBrowserOrder = nil
+        if shipmentKind == .parcel { pendingImports.insert(.file(.dhl), at: 0) }
         showBrowserOrderReview = false
-        browserImportSequence &+= 1
-        lastMessage = shipmentKind == .letter
-            ? "Etsy-Bestellung #\(order.orderID) wurde ins Briefformular übernommen."
-            : "Etsy-Bestellung #\(order.orderID) wurde übernommen. Jetzt das DHL-Paketlabel auswählen."
     }
 
     func dismissIncomingBrowserOrder() {
@@ -369,6 +434,8 @@ final class AppStore: ObservableObject {
         // Keep a continuous-stock test short even if the current task is a parcel.
         let testFormat = labelStockMode == .continuous100 ? LabelFormat.continuousLetter100x55 : selectedLabelFormat
         if labelStockMode == .continuous100 && !canPrintSelectedMaterialOverBluetooth {
+            printInProgress = true
+            defer { printInProgress = false }
             do {
                 try SystemPrinterService.print(
                     applyingMaterialCutGuide(to: LabelRenderer.testPattern(format: testFormat)),
@@ -420,6 +487,8 @@ final class AppStore: ObservableObject {
             }
         }
         if labelStockMode == .continuous100 && !canPrintSelectedMaterialOverBluetooth {
+            printInProgress = true
+            defer { printInProgress = false }
             jobs.update(job.id, status: .printing)
             lastMessage = "macOS-Systemdruck wird vorbereitet …"
             do {
@@ -564,23 +633,11 @@ final class AppStore: ObservableObject {
         do {
             pendingEtsyOrders = try EtsyOrderCSVParser.parse(url: url)
             lastMessage = "\(pendingEtsyOrders.count) Etsy-Bestellungen wurden gefunden."
-            showEtsyImporter = false
-
-            // A file importer is itself a modal presentation. Opening the review
-            // sheet from its completion handler can otherwise be ignored by macOS
-            // while the file importer is still being dismissed.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                guard let self, !self.pendingEtsyOrders.isEmpty else { return }
-                self.showEtsyImportReview = true
-            }
+            showEtsyImportReview = !pendingEtsyOrders.isEmpty
         } catch {
             pendingEtsyOrders = []
-            let message = error.localizedDescription
-            lastMessage = "Etsy-Import fehlgeschlagen: \(message)"
-            showEtsyImporter = false
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                self?.showEtsyImportError = true
-            }
+            lastMessage = "Etsy-Import fehlgeschlagen: \(error.localizedDescription)"
+            showEtsyImportError = true
         }
     }
 
@@ -593,16 +650,11 @@ final class AppStore: ObservableObject {
         selectedShipmentKind = .letter
         showEtsyImportReview = false
         pendingEtsyOrders = []
-        lastMessage = "Die Adresse von \(order.recipientName) wurde ins Formular übernommen."
     }
 
-    func requestLabelImport() {
-        showImporter = true
-    }
+    func requestLabelImport() { requestFileImport(.label) }
 
-    func chooseDHLLabelImport() {
-        showDHLImporter = true
-    }
+    func chooseDHLLabelImport() { requestFileImport(.dhl) }
 
     func reportDHLImportError(_ error: Error) {
         parcelImportError = error.localizedDescription
@@ -627,7 +679,9 @@ final class AppStore: ObservableObject {
             }
             let job = try jobs.enqueue(url: cachedURL, labelFormat: .shipping100x150,
                                        displayName: url.lastPathComponent, sourceFingerprint: "dhl:\(fingerprint)")
-            recordImportedLabel(job, parcelInfo: info, linksCurrentOrder: true)
+            recordImportedLabel(job, parcelInfo: info, linksCurrentOrder: selectedShipmentKind == .parcel)
+            if selectedShipmentKind != .parcel { resetShippingDraft() }
+            selectedShipmentKind = .parcel
             parcelImportError = nil
             lastMessage = nil
             lastImportedLabelJobID = job.id
@@ -647,7 +701,6 @@ final class AppStore: ObservableObject {
             lastMessage = "Die Quelldatei für diese Vorschau wurde nicht gefunden."
             return
         }
-        selectedJobID = job.id
         previewJob = job
     }
 
@@ -663,7 +716,7 @@ final class AppStore: ObservableObject {
         applicationDataLocation.rootURL.appendingPathComponent("Versandentwurf.json")
     }
 
-    func shippingDraft(for journey: GuidedShippingJourney) -> ShippingDraft? {
+    func shippingDraft(for journey: ShippingRoute) -> ShippingDraft? {
         guard journey.task != nil else { return nil }
         return ShippingDraft(journey: journey, recipient: recipientAddress, browserOrder: activeBrowserOrder,
                              csvOrderID: activeCSVOrderID, withPostage: letterWithPostage,
@@ -672,7 +725,7 @@ final class AppStore: ObservableObject {
                              letterFlowID: draftLetterFlowID, addressJobID: draftAddressJobID)
     }
 
-    func loadShippingDraft() -> GuidedShippingJourney? {
+    func loadShippingDraft() -> ShippingRoute? {
         guard FileManager.default.fileExists(atPath: shippingDraftURL.path) else { return nil }
         do {
             let draft = try JSONDecoder().decode(ShippingDraft.self, from: Data(contentsOf: shippingDraftURL))
@@ -681,6 +734,7 @@ final class AppStore: ObservableObject {
             activeCSVOrderID = draft.csvOrderID
             letterWithPostage = draft.withPostage
             selectedLetterPostageID = draft.stampID
+            selectAvailablePostage(in: postage.entries)
             selectedPostageIDs = draft.postageIDs
             draftLetterFlowID = draft.letterFlowID
             draftAddressJobID = draft.addressJobID
@@ -711,9 +765,8 @@ final class AppStore: ObservableObject {
     func resetShippingDraft() {
         activeBrowserOrder = nil
         activeCSVOrderID = nil
-        selectedLetterPostageID = ""
-        selectedPostageIDs = []
-        letterWithPostage = false
+        selectAvailablePostage(in: postage.entries)
+        letterWithPostage = true
         parcelImportError = nil
         lastImportedLabelJobID = nil
         draftLetterFlowID = nil

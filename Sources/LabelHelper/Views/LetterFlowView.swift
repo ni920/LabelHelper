@@ -47,28 +47,19 @@ struct LetterFlowView: View {
                 Text("Briefversand").font(.title2.bold())
                 Text(flow.recipientName).font(.headline)
                 if let order = flow.orderID { Text("Etsy #\(order)").foregroundStyle(.secondary) }
-                Text(flow.isCombined
-                     ? "Adresse + \(flow.stamp.amount) € Briefmarke auf einem Etikett\nEtikett: \(appStore.printedLabelFormat(flow.stampJob.resolvedLabelFormat).sizeDescription)"
-                     : "Adresse + \(flow.stamp.amount) € Briefmarke\nAdresse: \(appStore.printedLabelFormat(flow.addressJob.resolvedLabelFormat).sizeDescription)\nBriefmarke: \(appStore.printedLabelFormat(flow.stampJob.resolvedLabelFormat).sizeDescription)")
+                LabeledContent("Porto", value: "\(flow.stamp.amount) €")
+                Text(flow.isCombined ? "Ein gemeinsames Etikett" : "Zwei Etiketten")
                     .font(.callout).foregroundStyle(.secondary)
-                if appStore.labelStockMode == .continuous100 {
-                    Text("Mit Schnittlinie unter jedem Etikett · 2 mm Zugabe").font(.callout)
-                }
                 Divider()
                 HStack {
                     if active { ProgressView().controlSize(.small) }
-                    Text(flow.statusTitle).font(.headline)
+                    if flow.stage != .completed { Text(flow.statusTitle).font(.headline) }
                 }
                 if let error = flow.errorMessage ?? controller.message ?? store.storageError {
                     Text(error).font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
                 }
                 if let previewError { Text(previewError).font(.callout).foregroundStyle(.red) }
-                Text("Sendungsnummer").font(.headline)
-                PostageTrackingNumberView(stamp: flow.stamp, showTitle: false)
                 if flow.stage == .ready || flow.stage == .addressPrinted {
-                    if flow.needsPostagePrint {
-                        Toggle("Nach Abschluss automatisch kopieren", isOn: $autoCopy).font(.callout)
-                    }
                     PostageMaterialRequirement(appStore: appStore, bluetooth: bluetooth)
                     if !bluetooth.connectionState.isReady {
                         PrinterConnectionView(appStore: appStore, bluetooth: bluetooth)
@@ -80,31 +71,22 @@ struct LetterFlowView: View {
                     }
                 }
                 if flow.stage == .completed {
-                    Text(flow.isCombined ? "Das Etikett ist bestätigt. Die Sendungsnummer ist diesem Brief zugeordnet." : "Beide Etiketten sind bestätigt. Die Sendungsnummer ist diesem Brief zugeordnet.")
-                        .font(.callout).foregroundStyle(.secondary)
-                    ShipmentCompletionView(appStore: appStore, status: "Briefversand abgeschlossen.",
+                    ShipmentCompletionView(appStore: appStore, status: "Brief gedruckt",
                                            trackingNumbers: [flow.stamp.trackingNumber].compactMap { $0 })
-                    Divider()
-                    if !flow.isCombined {
-                        Picker("Erneut drucken", selection: $reprintSelection) {
-                            ForEach(LetterShipmentFlow.ReprintSelection.allCases) { selection in
-                                Text(selection.title).tag(selection)
-                            }
-                        }
-                    }
-                    if let reason = controller.reprintUnavailableReason(flow.id, selection: reprintSelection) {
-                        Text(reason).font(.callout).foregroundStyle(.secondary)
-                    }
-                    PostageMaterialRequirement(appStore: appStore, bluetooth: bluetooth)
-                    if !bluetooth.connectionState.isReady {
-                        PrinterConnectionView(appStore: appStore, bluetooth: bluetooth)
+                    DisclosureGroup("Nachdruck") {
+                        reprintOptions.padding(.top, 8)
                     }
                 }
                }.frame(maxWidth: .infinity, alignment: .leading)
               }
                 actions
-                Button(flow.stage == .completed ? "Fertig" : "Schließen", role: .cancel) { appStore.letterFlowPreview = nil }
-                    .disabled(active)
+                if !active {
+                    HStack {
+                        Button("Schließen", role: .cancel) { appStore.letterFlowPreview = nil }
+                        Spacer()
+                        ShipmentImportMenu(appStore: appStore)
+                    }
+                }
             }.frame(width: 290)
         }
         .padding(24).frame(minWidth: 840, minHeight: 610)
@@ -116,6 +98,7 @@ struct LetterFlowView: View {
         }
         .onChange(of: step) { _, _ in render() }
         .onChange(of: appStore.labelStockMode) { _, _ in render() }
+        .onChange(of: appStore.continuousExtraFeedMM) { _, _ in render() }
         .onChange(of: reprintSelection) { _, selection in step = selection == .stamp ? 1 : 0 }
         .onChange(of: flow.stage) { _, stage in
             if stage == .printingAddress { step = 0 }
@@ -145,6 +128,33 @@ struct LetterFlowView: View {
         return flow.stage == .ready ? (flow.reprintSelection?.actionTitle ?? "Adresse + Briefmarke drucken") : "Nur Briefmarke drucken"
     }
 
+    private var reprintOptions: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if !flow.isCombined {
+                Picker("Auswahl", selection: $reprintSelection) {
+                    ForEach(LetterShipmentFlow.ReprintSelection.allCases) { selection in
+                        Text(selection.title).tag(selection)
+                    }
+                }
+            }
+            if let reason = controller.reprintUnavailableReason(flow.id, selection: reprintSelection) {
+                Text(reason).font(.callout).foregroundStyle(.secondary)
+            }
+            PostageMaterialRequirement(appStore: appStore, bluetooth: bluetooth)
+            if !bluetooth.connectionState.isReady {
+                PrinterConnectionView(appStore: appStore, bluetooth: bluetooth)
+            }
+            Button(reprintTitle) {
+                if reprintSelection == .address {
+                    controller.reprint(flow.id, selection: .address)
+                } else {
+                    confirmReprint = true
+                }
+            }
+            .disabled(!canReprint)
+        }
+    }
+
     @ViewBuilder private var actions: some View {
         switch flow.stage {
         case .ready, .addressPrinted:
@@ -161,15 +171,7 @@ struct LetterFlowView: View {
             Button("Marke ist korrekt gedruckt") { controller.resolveStamp(flow.id, alreadyPrinted: true) }
                 .disabled(controller.activeFlowID != nil)
             Button("Marke ist unbrauchbar …") { confirmStampRetry = true }.disabled(controller.activeFlowID != nil)
-        case .completed:
-            Button(reprintTitle) {
-                if reprintSelection == .address {
-                    controller.reprint(flow.id, selection: .address)
-                } else {
-                    confirmReprint = true
-                }
-            }.disabled(!canReprint)
-        case .printingAddress, .printingStamp:
+        case .completed, .printingAddress, .printingStamp:
             EmptyView()
         }
     }

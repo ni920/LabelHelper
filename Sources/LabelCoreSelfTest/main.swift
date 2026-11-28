@@ -250,7 +250,7 @@ do {
 
     try runCutGuideTests()
     try runFirmwareTests()
-    try runGuidedShippingTests()
+    try runShippingRouteTests()
     try runBrowserExtensionSetupTests()
     try runPostageTests()
     try runApplicationDataTests()

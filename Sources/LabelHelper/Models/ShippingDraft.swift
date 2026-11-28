@@ -2,7 +2,7 @@ import Foundation
 import LabelCore
 
 struct ShippingDraft: Codable, Equatable {
-    let journey: GuidedShippingJourney
+    let journey: ShippingRoute
     let recipient: RecipientAddress
     let browserOrder: BrowserOrderPayload?
     let csvOrderID: String?

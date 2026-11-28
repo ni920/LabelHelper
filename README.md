@@ -31,7 +31,7 @@ und verarbeitet alle Versanddaten lokal auf dem Mac.
 ## Auf einen Blick
 
 - **Direkter Bluetooth-Druck** ohne Cloud-Dienst oder Zwischenserver
-- **Geführter Modus** für Briefe, Paketlabel und Briefmarken
+- **Versandübersicht** für Briefe, Paketlabel und gespeicherte Entwürfe
 - **Exakte Vorschau** der später übertragenen Schwarz-Weiß-Druckdaten
 - **Etsy-Übernahme** per Browser-Erweiterung oder CSV-Import
 - **Vorgestanzte Etiketten und 100-mm-Endlosrollen**
@@ -98,19 +98,14 @@ verbindet ihn nach Neustarts oder kurzen Unterbrechungen automatisch wieder.
 
 ## Versand vorbereiten
 
-Beim ersten Start ist der geführte Modus aktiv. Unter **Versenden** lässt sich
-jederzeit zwischen **Geführt** und **Direkt** wechseln. Beide Ansichten bearbeiten
-denselben Entwurf.
-
-Wähle unter **Neuer Versand** eine Aufgabe, um ohne alte Empfängerdaten, Porto
-oder Paketdatei zu beginnen. Mit **Entwurf fortsetzen** öffnest du den lokal
-gespeicherten Entwurf auch nach einem Neustart. Dein Absender und das zuletzt
-gewählte Material stehen für den nächsten Versand wieder bereit.
+Unter **Versenden** kannst du einen Brief vorbereiten, ein DHL-PDF öffnen oder
+einen gespeicherten Entwurf fortsetzen. Die Browser-Erweiterung übergibt
+Etsy-Bestellungen direkt an Label Helper.
 
 | Aufgabe | Ablauf |
 | --- | --- |
-| **Brief** | **Adresse → Druck prüfen**. Im zweiten Schritt Frankierung, Material und die Vorschau der einzelnen oder gemeinsamen Etiketten kontrollieren. |
-| **Paket** | DHL-PDF importieren. Empfänger, Sendungsnummer und den 100 × 150-mm-Ausschnitt gemeinsam prüfen. Bei fehlender Erkennung **Andere Datei wählen**. |
+| **Brief** | Empfänger und vorausgewähltes Porto neben der Etikettenvorschau prüfen. Bei Bedarf Adresse oder Frankierung bearbeiten. |
+| **Paket** | DHL-PDF importieren. Empfänger, Sendungsnummer und den 100 × 150-mm-Ausschnitt gemeinsam prüfen. Bei fehlender Erkennung ein anderes PDF öffnen. |
 | **Briefmarken** | PDF-Bündel importieren, verfügbare Marken auswählen, platzsparendes Layout prüfen und drucken |
 | **Eigene Datei** | PDF, PNG oder JPEG importieren und proportional in das gewählte Format einpassen |
 
@@ -243,7 +238,7 @@ und
 
 - Bluetooth in macOS einschalten und den Zugriff für Label Helper erlauben.
 - Den Drucker nah am Mac einschalten und erneut **Geräte suchen** wählen.
-- Unter **Label Helper → Einstellungen → Bluetooth** den Verbindungsstatus und
+- Unter **Label Helper → Einstellungen → Drucker → Bluetooth-Diagnose** den Verbindungsstatus und
   das kopierbare Diagnoseprotokoll prüfen.
 
 ## Entwicklung

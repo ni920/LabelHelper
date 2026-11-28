@@ -102,6 +102,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          version="${GITHUB_REF_NAME#v}"
+          notes="docs/ReleaseNotes-${version}.md"
+          if [[ -f "$notes" ]]; then
+            notes_args=(--notes-file "$notes")
+          else
+            notes_args=(--generate-notes)
+          fi
           gh release create "$GITHUB_REF_NAME" \
             dist/LabelHelper-universal.zip \
             dist/LabelHelper-universal.zip.sha256 \
@@ -110,5 +117,5 @@ jobs:
             dist/appcast.xml \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
-            --generate-notes \
+            "${notes_args[@]}" \
             --title "Label Helper $GITHUB_REF_NAME"

@@ -54,9 +54,10 @@ struct PrintPreviewView: View {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(record?.kind == .parcel && record?.trackingNumber != nil ? "DHL-Paketlabel" : "Druckvorschau")
                         .font(.title2.weight(.semibold))
-                    Text(job.title).foregroundStyle(.secondary).lineLimit(2)
                     if let record, !record.addressLines.isEmpty {
                         Text(record.addressLines.joined(separator: "\n")).textSelection(.enabled)
+                    } else {
+                        Text(job.title).foregroundStyle(.secondary).lineLimit(2)
                     }
                     if printPhase != .printed, let trackingNumber = record?.trackingNumber {
                         LabeledContent("Sendungsnummer", value: trackingNumber).textSelection(.enabled)
@@ -66,28 +67,14 @@ struct PrintPreviewView: View {
                 Divider()
 
                 LabeledContent("Druckformat", value: appStore.printedLabelFormat(job.resolvedLabelFormat).sizeDescription)
-                if appStore.labelStockMode == .continuous100 {
-                    LabeledContent("Material", value: "Endlosrolle")
-                    Label(
-                        bluetooth.supportsContinuousStock
-                            ? "Bluetooth mit Firmware \(bluetooth.firmwareVersion ?? "1.1.49"). Mit Schnittlinie und 2 mm Zugabe."
-                            : "Für Bluetooth den Drucker mit Firmware ab 1.1.49 verbinden. Alternativ über USB mit Medientyp Endlos/Continuous drucken.",
-                        systemImage: "info.circle"
-                    )
-                        .font(.callout)
-                }
-                DisclosureGroup("Druckeinstellungen") {
-                    LabeledContent("Auflösung", value: "203 dpi")
-                    LabeledContent("Druckdichte", value: "\(appStore.density)")
-                    LabeledContent("Geschwindigkeit", value: "\(appStore.speed)")
-                }
-
                 if printPhase == .printed {
                     ShipmentCompletionView(appStore: appStore,
                         status: usedSystemPrint ? "An macOS-Systemdruck übergeben." : "Etikett gedruckt.",
                         trackingNumbers: tracking)
                     if job.postageStampIDs == nil {
-                        Button("Erneut drucken …") { printPhase = .idle }
+                        DisclosureGroup("Nachdruck") {
+                            Button("Vorschau erneut öffnen") { printPhase = .idle }.padding(.top, 6)
+                        }
                     }
                 } else {
                     if printPhase == .printing { ProgressView("Wird gedruckt …") }
@@ -96,7 +83,6 @@ struct PrintPreviewView: View {
                             .font(.callout).foregroundStyle(.red)
                     }
                     if printPhase == .idle {
-                        Text("Prüfe Adresse, Ausrichtung und Größe.").font(.callout).foregroundStyle(.secondary)
                         if job.postageStampIDs != nil {
                             PostageMaterialRequirement(appStore: appStore, bluetooth: bluetooth)
                         }
@@ -109,11 +95,15 @@ struct PrintPreviewView: View {
                     }
                 }
                 if !embedded {
-                    Button("Schließen", role: .cancel) { appStore.closePrintPreview() }
-                        .disabled(printPhase == .printing)
+                    HStack {
+                        Button("Schließen", role: .cancel) { appStore.closePrintPreview() }
+                            .disabled(printPhase == .printing)
+                        Spacer()
+                        if printPhase != .printing { ShipmentImportMenu(appStore: appStore) }
+                    }
                 }
             }
-            .frame(width: 270)
+            .frame(minWidth: 225, idealWidth: 270, maxWidth: 300)
         }
         .padding(embedded ? 0 : 24)
         .frame(minWidth: embedded ? nil : 760, minHeight: embedded ? nil : 570)

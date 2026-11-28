@@ -1,6 +1,5 @@
 import LabelCore
 import SwiftUI
-import UniformTypeIdentifiers
 
 private enum SidebarSelection: String, CaseIterable, Identifiable {
     case printer
@@ -27,12 +26,11 @@ private enum SidebarSelection: String, CaseIterable, Identifiable {
 }
 
 struct ContentView: View {
-    @Environment(\.openWindow) private var openWindow
     @EnvironmentObject private var appStore: AppStore
-    @State private var journey = GuidedShippingJourney()
+    @State private var journey = ShippingRoute()
     @State private var presentsDraft = false
     @State private var hasLoadedDraft = false
-    @State private var replacementTask: GuidedShippingJourney.Task?
+    @State private var replacementTask: ShippingRoute.Task?
     @State private var selection: SidebarSelection? = .printer
 
     var body: some View {
@@ -47,21 +45,19 @@ struct ContentView: View {
         } detail: {
             switch selection ?? .printer {
             case .printer:
-                if presentsDraft, let task = journey.task {
-                    GuidedShippingView(appStore: appStore, postage: appStore.postage, jobs: appStore.jobs,
-                                       controller: appStore.letterFlowController, journey: $journey)
-                        .id(task)
+                if presentsDraft, journey.task != nil {
+                    ShipmentWorkspace(appStore: appStore, jobs: appStore.jobs, route: journey)
+                        .id(journey.task)
                 } else {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 24) {
-                            if let task = journey.task {
+                            if let task = journey.task, task != .postage {
                                 GroupBox("Aktueller Entwurf") {
                                     HStack {
                                         Label(appStore.recipientName.isEmpty ? task.title : appStore.recipientName,
                                               systemImage: task.icon)
                                         Spacer()
-                                        Button("Entwurf fortsetzen") { presentsDraft = true }
-                                            .buttonStyle(.borderedProminent)
+                                        Button("Öffnen") { presentsDraft = true }
                                     }.padding(8)
                                 }
                             }
@@ -84,55 +80,24 @@ struct ContentView: View {
         }
         .fileImporter(
             isPresented: $appStore.showImporter,
-            allowedContentTypes: [.pdf, .png, .jpeg],
-            allowsMultipleSelection: true
-        ) { result in
-            switch result {
-            case .success(let urls): appStore.importFiles(urls)
-            case .failure(let error): appStore.lastMessage = error.localizedDescription
-            }
-        }
-        .fileImporter(isPresented: $appStore.showDHLImporter, allowedContentTypes: [.pdf]) { result in
-            switch result {
-            case .success(let url): appStore.importDHLLabel(url)
-            case .failure(let error): appStore.reportDHLImportError(error)
-            }
-        }
-        .fileImporter(
-            isPresented: $appStore.showPostageImporter,
-            allowedContentTypes: [.pdf],
-            allowsMultipleSelection: false
-        ) { result in
-            switch result {
-            case .success(let urls):
-                if let url = urls.first { appStore.importPostageBundle(url) }
-            case .failure(let error): appStore.lastMessage = error.localizedDescription
-            }
-        }
-        .fileImporter(
-            isPresented: $appStore.showEtsyImporter,
-            allowedContentTypes: [.commaSeparatedText],
-            allowsMultipleSelection: false
-        ) { result in
-            switch result {
-            case .success(let urls):
-                if let url = urls.first { appStore.loadEtsyCSV(url) }
-            case .failure(let error): appStore.lastMessage = error.localizedDescription
-            }
-        }
-        .sheet(isPresented: $appStore.showEtsyImportReview) {
+            allowedContentTypes: appStore.fileImport?.contentTypes ?? [.pdf],
+            allowsMultipleSelection: appStore.fileImport == .label,
+            onCompletion: { appStore.finishFileImport($0) },
+            onCancellation: { appStore.finishFileImport() }
+        )
+        .sheet(isPresented: $appStore.showEtsyImportReview, onDismiss: appStore.importSheetDismissed) {
             EtsyImportView(appStore: appStore)
         }
-        .sheet(isPresented: $appStore.showBrowserOrderReview) {
+        .sheet(isPresented: $appStore.showBrowserOrderReview, onDismiss: appStore.importSheetDismissed) {
             BrowserOrderReviewView(appStore: appStore)
         }
-        .sheet(item: $appStore.previewJob) { job in
+        .sheet(item: $appStore.previewJob, onDismiss: appStore.importSheetDismissed) { job in
             PrintPreviewView(appStore: appStore, job: job)
         }
-        .sheet(item: $appStore.postagePreview) { batch in
+        .sheet(item: $appStore.postagePreview, onDismiss: appStore.importSheetDismissed) { batch in
             PostagePrintPreviewView(appStore: appStore, bluetooth: appStore.bluetooth, batch: batch)
         }
-        .sheet(item: $appStore.letterFlowPreview) { flow in
+        .sheet(item: $appStore.letterFlowPreview, onDismiss: appStore.importSheetDismissed) { flow in
             LetterFlowView(appStore: appStore, store: appStore.letterFlows, controller: appStore.letterFlowController,
                            bluetooth: appStore.bluetooth, initialFlow: flow)
         }
@@ -160,16 +125,27 @@ struct ContentView: View {
         }
         .onAppear {
             guard !hasLoadedDraft else { return }
-            if let saved = appStore.loadShippingDraft() { journey = saved }
+            if let saved = appStore.loadShippingDraft() {
+                journey = saved
+                if saved.task == .postage { selection = .postage }
+            }
             hasLoadedDraft = true
         }
         .onChange(of: appStore.shippingDraft(for: journey)) { _, draft in
             if hasLoadedDraft { appStore.saveShippingDraft(draft) }
         }
-        .onChange(of: appStore.guidedMode) { _, guided in
-            if guided, presentsDraft, journey.task == .letter, journey.step == .recipient,
-               appStore.recipientAddress.isComplete, appStore.senderAddress.isComplete {
-                journey.advance()
+        .onChange(of: appStore.printInProgress || appStore.printingPostageBatch) { _, busy in
+            if !busy { appStore.presentNextImport() }
+        }
+        .onReceive(appStore.letterFlowController.$activeFlowID.receive(on: DispatchQueue.main)) { activeFlow in
+            if activeFlow == nil { appStore.presentNextImport() }
+        }
+        .onChange(of: appStore.showEtsyImportError) { _, presented in
+            if !presented { appStore.presentNextImport() }
+        }
+        .onChange(of: appStore.parcelImportError) { _, error in
+            if let error, !(selection == .printer && presentsDraft && journey.task == .parcel) {
+                appStore.lastMessage = error
             }
         }
         .onChange(of: appStore.shippingImportSequence) { _, _ in
@@ -186,11 +162,7 @@ struct ContentView: View {
         .onChange(of: appStore.postageImportSequence) { _, _ in
             guard appStore.postageImportSucceeded else { return }
             if selection == .printer, presentsDraft, journey.task == .letter { return }
-            if selection == .printer, presentsDraft, journey.task == .postage {
-                journey.receivePostage()
-            } else {
-                selection = .postage
-            }
+            selection = .postage
         }
         .onChange(of: appStore.draftHomeSequence) { _, _ in
             selection = .printer
@@ -207,42 +179,39 @@ struct ContentView: View {
             journey.reset()
         }
         .toolbar {
-            ToolbarItem(placement: .principal) {
-                if selection == .printer {
-                    Picker("Bedienmodus", selection: $appStore.guidedMode) {
-                        Text("Geführt").tag(true)
-                        Text("Direkt").tag(false)
-                    }
-                    .pickerStyle(.segmented)
-                    .help("Geführt: Schritt für Schritt. Direkt: alle Versandfelder zusammen.")
-                }
-            }
             ToolbarItemGroup(placement: .primaryAction) {
-                Menu("Importieren") {
-                    Button("PDF oder Bild …", action: appStore.requestLabelImport)
-                    Button("Etsy-Adresse aus CSV …") { appStore.showEtsyImporter = true }
-                    Button("Browser-Erweiterung einrichten …") { openWindow(id: "browser-extension-setup") }
-                    Button("Briefmarken-Bündel …") { appStore.showPostageImporter = true }
-                }
-                .accessibilityLabel("Importieren")
-                .help("Etikett, Briefmarken oder Etsy-Adressen importieren")
+                ShipmentImportMenu(appStore: appStore)
                 PrinterConnectionView(appStore: appStore, bluetooth: appStore.bluetooth, handlesMenuRequests: true)
             }
         }
     }
 
-    private func selectNewTask(_ task: GuidedShippingJourney.Task) {
-        if journey.task != nil { replacementTask = task }
+    private func selectNewTask(_ task: ShippingRoute.Task) {
+        if journey.task != nil && journey.task != .postage { replacementTask = task }
         else { beginNewTask(task) }
     }
 
-    private func beginNewTask(_ task: GuidedShippingJourney.Task) {
+    private func beginNewTask(_ task: ShippingRoute.Task) {
         guard !appStore.shippingBusy else { return }
         replacementTask = nil
         appStore.resetShippingDraft()
         appStore.selectedShipmentKind = task == .parcel ? .parcel : .letter
         journey.choose(task)
         presentsDraft = true
+        if task == .parcel { appStore.chooseDHLLabelImport() }
     }
+}
 
+struct ShipmentImportMenu: View {
+    let appStore: AppStore
+
+    var body: some View {
+        Menu("Importieren") {
+            Button("DHL-PDF öffnen …", action: appStore.chooseDHLLabelImport)
+            Button("PDF oder Bild öffnen …", action: appStore.requestLabelImport)
+            Button("Etsy-CSV öffnen …") { appStore.requestFileImport(.etsyCSV) }
+            Button("Briefmarken-PDF öffnen …") { appStore.requestFileImport(.postage) }
+        }
+        .help("Etiketten, Etsy-Adressen und Briefmarken importieren")
+    }
 }

@@ -22,9 +22,9 @@ struct SettingsView: View {
                     Label("Druckaufträge", systemImage: "list.bullet.rectangle")
                 }
 
-            BluetoothDiagnosticsView(bluetooth: appStore.bluetooth)
+            PrinterSettingsView(appStore: appStore)
                 .tabItem {
-                    Label("Bluetooth", systemImage: "wave.3.right.circle")
+                    Label("Drucker", systemImage: "printer")
                 }
         }
         .frame(width: 620, height: 600)
@@ -41,12 +41,6 @@ private struct GeneralSettingsView: View {
 
     var body: some View {
         Form {
-            Section("Bedienung") {
-                Toggle("Geführten Modus verwenden", isOn: $appStore.guidedMode)
-                Text("Der geführte Modus zeigt die Vorbereitung Schritt für Schritt. Im Direktmodus stehen alle Versandfelder zusammen.")
-                    .font(.callout)
-            }
-
             Section("Etsy-Browser-Erweiterung") {
                 Text("Eine geöffnete Etsy-Bestellung aus Chrome oder Safari übernehmen.")
                     .font(.callout)
@@ -63,33 +57,7 @@ private struct GeneralSettingsView: View {
                 }
                 TextField("Land", text: $appStore.senderCountry)
             }
-            Section("Etikettenmaterial") {
-                LabelFormatControls(appStore: appStore, showHeading: false)
-                Text("Paketlabel verwenden 100 × 150 mm.").font(.callout)
-                if appStore.labelStockMode == .continuous100 {
-                    Stepper("Papierzugabe nach der Schnittlinie: \(Int(appStore.continuousExtraFeedMM)) mm",
-                            value: $appStore.continuousExtraFeedMM,
-                            in: ContinuousLabelCutGuide.additionalFeedRangeMM, step: 2)
-                    Text("Falls der Drucker das Papier beim Start zu weit einzieht: Mit 8 bis 12 mm bleibt die Schnittkante weiter vorn. Das kostet pro Etikett entsprechend mehr Papier.")
-                        .font(.callout)
-                }
-            }
-            Section {
-                DisclosureGroup("Erweiterte Druckeinstellungen") {
-                    Stepper("Geschwindigkeit: \(appStore.speed)", value: $appStore.speed, in: 1...8)
-                    Stepper("Druckdichte: \(appStore.density)", value: $appStore.density, in: 1...15)
-                }
-            }
-
             Section("Daten") {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Speicherort")
-                        .font(.headline)
-                    Text(appStore.applicationDataLocation.rootURL.path)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Button("Datenordner anzeigen", action: revealDataDirectory)
@@ -98,8 +66,6 @@ private struct GeneralSettingsView: View {
                     Button("Datensicherung wiederherstellen …", action: chooseBackupToRestore)
                 }
                 .disabled(!appStore.canManageApplicationData)
-                Text("Die Sicherung enthält Druckaufträge, Adressetiketten, Briefmarkenbestand, Label-Verlauf und die vorbereitete Browser-Erweiterung.")
-                    .font(.callout)
                 if !appStore.canManageApplicationData {
                     Label("Datensicherungen sind während eines Druckablaufs gesperrt.", systemImage: "printer")
                         .font(.callout)

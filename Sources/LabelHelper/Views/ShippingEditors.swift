@@ -16,28 +16,11 @@ struct RecipientEditorView: View {
     }
 }
 
-struct SenderSummaryView: View {
-    @ObservedObject var appStore: AppStore
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Absender").font(.headline)
-                Spacer()
-                SettingsLink { Text(appStore.senderAddress.isComplete ? "Bearbeiten …" : "Absender einrichten …") }
-            }
-            if appStore.senderAddress.isComplete {
-                Text(appStore.senderAddress.singleLine).textSelection(.enabled)
-            } else {
-                Label("Bitte den vollständigen Absender einmal in den Einstellungen hinterlegen.", systemImage: "info.circle")
-            }
-        }
-    }
-}
-
 struct PrinterConnectionView: View {
     @ObservedObject var appStore: AppStore
     @ObservedObject var bluetooth: BluetoothPrinterService
     var handlesMenuRequests = false
+    var showsDiagnosticsLink = true
     @State private var localPresentation = false
     private var presentation: Binding<Bool> {
         handlesMenuRequests ? $appStore.showPrinterConnection : $localPresentation
@@ -67,7 +50,9 @@ struct PrinterConnectionView: View {
                         }
                     }
                 }
-                SettingsLink { Text("Bluetooth-Diagnose in Einstellungen …") }
+                if showsDiagnosticsLink {
+                    SettingsLink { Text("Druckereinstellungen …") }
+                }
             }
             .padding(20).frame(width: 340)
         }

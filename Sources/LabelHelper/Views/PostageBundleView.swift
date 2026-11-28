@@ -57,16 +57,6 @@ struct PostageBundleView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Drucklayout")
-                    .font(.headline)
-                HStack(alignment: .bottom, spacing: 20) {
-                    PostageFormatControls(appStore: appStore, formatID: $formatID)
-                    Toggle("Schnittlinien", isOn: $cutGuides)
-                }
-            }
-            .disabled(busy)
-
             if store.entries.isEmpty {
                 ContentUnavailableView {
                     Label("Noch keine Briefmarken", systemImage: "rectangle.stack")
@@ -74,7 +64,7 @@ struct PostageBundleView: View {
                     Text("Importiere ein PDF-Bündel. Die App erkennt die Marken und ordnet deine Auswahl platzsparend an.")
                 } actions: {
                     Button("PDF-Bündel importieren …") {
-                        appStore.showPostageImporter = true
+                        appStore.requestFileImport(.postage)
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(busy)
@@ -90,8 +80,8 @@ struct PostageBundleView: View {
                     .labelsHidden()
                     .frame(maxWidth: 420)
                     Spacer()
-                    Text("\(availableCount) verfügbar · \(usedCount) genutzt")
-                        .foregroundStyle(.secondary)
+                    Button("PDF öffnen …") { appStore.requestFileImport(.postage) }
+                        .disabled(busy)
                 }
                 HStack(spacing: 12) {
                     Toggle("Alle verfügbaren auswählen",
@@ -130,7 +120,9 @@ struct PostageBundleView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(selected.isEmpty ? "Marken für den nächsten Druck auswählen" : "\(selected.count) Marken auf \(layout.sheets.count) Etikett\(layout.sheets.count == 1 ? "" : "en")")
                             .font(.headline)
-                        if !selected.isEmpty { Text("Bis zu \(layout.capacity) Marken pro Etikett · Originalgröße 100 %").foregroundStyle(.secondary) }
+                        if !selected.isEmpty && layout.capacity == 0 {
+                            SettingsLink { Text("Briefmarkenformat prüfen …") }
+                        }
                     }
                     Spacer()
                     Button("Druckvorschau erstellen") { appStore.preparePostageSheets(format: format, cutGuides: cutGuides) }
@@ -140,9 +132,7 @@ struct PostageBundleView: View {
             }
             if let message = appStore.lastMessage { Text(message).font(.callout).foregroundStyle(.secondary) }
             if let message = store.storageError { Text(message).font(.callout).foregroundStyle(.red) }
-            Text("Basis-Sendungsverfolgung: Bearbeitung im Briefzentrum, ohne Zustellnachweis.")
-                .font(.caption).foregroundStyle(.secondary)
-            PostageMaterialRequirement(appStore: appStore, bluetooth: appStore.bluetooth)
+            if !selected.isEmpty { PostageMaterialRequirement(appStore: appStore, bluetooth: appStore.bluetooth) }
         }
         .padding(24)
         .navigationTitle("Briefmarken")
@@ -391,34 +381,34 @@ struct PostagePrintPreviewView: View {
                 Text("Briefmarken-Vorschau").font(.title2.bold())
                 Text("\(batch.jobs.flatMap { $0.postageStampIDs ?? [] }.count) Marken auf \(batch.jobs.count) Etikett\(batch.jobs.count == 1 ? "" : "en")")
                 Text(appStore.printedLabelFormat(batch.jobs[index].resolvedLabelFormat).sizeDescription).foregroundStyle(.secondary)
-                if appStore.labelStockMode == .continuous100 {
-                    Text("Schnittlinie unter jedem Etikett · 2 mm Zugabe").font(.callout)
+                if batch.jobs.count > 1 {
+                    HStack {
+                        Button { index -= 1 } label: { Label("Vorheriges Etikett", systemImage: "chevron.left").labelStyle(.iconOnly) }.disabled(index == 0)
+                        Text("Etikett \(index + 1) / \(batch.jobs.count)")
+                        Button { index += 1 } label: { Label("Nächstes Etikett", systemImage: "chevron.right").labelStyle(.iconOnly) }.disabled(index + 1 == batch.jobs.count)
+                    }
                 }
-                Text("Originalgröße 100 %\nDie Marken nach dem Druck an den Schnittlinien trennen.")
-                    .font(.callout).foregroundStyle(.secondary)
-                HStack {
-                    Button { index -= 1 } label: { Label("Vorheriges Etikett", systemImage: "chevron.left").labelStyle(.iconOnly) }.disabled(index == 0)
-                    Text("Etikett \(index + 1) / \(batch.jobs.count)")
-                    Button { index += 1 } label: { Label("Nächstes Etikett", systemImage: "chevron.right").labelStyle(.iconOnly) }.disabled(index + 1 == batch.jobs.count)
-                }
-                Text("Sendungsnummern").font(.headline)
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
-                        ForEach(sheetStamps) { stamp in
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("Marke \(stamp.number) · \(stamp.amount) €").font(.caption).foregroundStyle(.secondary)
-                                PostageTrackingNumberView(stamp: stamp, showTitle: false)
-                            }
+                if appStore.finishedPostageBatchID != batch.id && !sheetStamps.isEmpty {
+                    DisclosureGroup("Sendungsnummern") {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 12) {
+                                ForEach(sheetStamps) { stamp in
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text("Marke \(stamp.number) · \(stamp.amount) €").font(.caption).foregroundStyle(.secondary)
+                                        PostageTrackingNumberView(stamp: stamp, showTitle: false)
+                                    }
+                                }
+                            }.frame(maxWidth: .infinity, alignment: .leading)
+                        }.frame(maxHeight: 170)
+                        Button(copiedSheet ? "Nummern kopiert" : "Nummern dieses Etiketts kopieren") {
+                            copiedSheet = copyTrackingNumbers(sheetStamps)
+                        }.disabled(sheetStamps.isEmpty)
+                        .task(id: copiedSheet) {
+                            guard copiedSheet else { return }
+                            try? await Task.sleep(for: .seconds(2))
+                            if !Task.isCancelled { copiedSheet = false }
                         }
-                    }.frame(maxWidth: .infinity, alignment: .leading)
-                }.frame(maxHeight: 170)
-                Button(copiedSheet ? "Nummern kopiert" : "Nummern dieses Etiketts kopieren") {
-                    copiedSheet = copyTrackingNumbers(sheetStamps)
-                }.disabled(sheetStamps.isEmpty)
-                .task(id: copiedSheet) {
-                    guard copiedSheet else { return }
-                    try? await Task.sleep(for: .seconds(2))
-                    if !Task.isCancelled { copiedSheet = false }
+                    }
                 }
                 if let error { Text(error).foregroundStyle(.red) }
                 if appStore.finishedPostageBatchID == batch.id {
@@ -453,6 +443,7 @@ struct PostagePrintPreviewView: View {
         .onAppear(perform: render)
         .onChange(of: index) { _, _ in copiedSheet = false; render() }
         .onChange(of: appStore.labelStockMode) { _, _ in render() }
+        .onChange(of: appStore.continuousExtraFeedMM) { _, _ in render() }
     }
 
     private func render() {
