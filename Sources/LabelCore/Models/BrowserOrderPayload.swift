@@ -43,6 +43,7 @@ public enum BrowserOrderLinkError: LocalizedError, Equatable {
 public enum BrowserOrderLink {
     public static let scheme = "munbyn-labeler"
     public static let host = "etsy-order"
+    public static let batchHost = "etsy-orders"
     private static let maximumPayloadBytes = 64 * 1_024
 
     public static func makeURL(for payload: BrowserOrderPayload) throws -> URL {
@@ -58,19 +59,7 @@ public enum BrowserOrderLink {
     }
 
     public static func decode(_ url: URL) throws -> BrowserOrderPayload {
-        guard url.scheme?.lowercased() == scheme,
-              url.host?.lowercased() == host,
-              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
-            throw BrowserOrderLinkError.invalidURL
-        }
-        guard let encoded = components.queryItems?.first(where: { $0.name == "payload" })?.value,
-              !encoded.isEmpty else {
-            throw BrowserOrderLinkError.payloadMissing
-        }
-        guard let data = base64URLDecoded(encoded), data.count <= maximumPayloadBytes else {
-            throw BrowserOrderLinkError.invalidPayload
-        }
-
+        let data = try payloadData(url, expectedHost: host)
         let payload: BrowserOrderPayload
         do {
             payload = try JSONDecoder().decode(BrowserOrderPayload.self, from: data)
@@ -81,6 +70,39 @@ public enum BrowserOrderLink {
             throw BrowserOrderLinkError.unsupportedVersion(payload.version)
         }
         return payload
+    }
+
+    public static func decodeBatch(_ url: URL) throws -> [BrowserOrderPayload] {
+        struct Batch: Decodable {
+            let version: Int
+            let orders: [BrowserOrderPayload]
+        }
+        let data = try payloadData(url, expectedHost: batchHost)
+        guard let batch = try? JSONDecoder().decode(Batch.self, from: data) else { throw BrowserOrderLinkError.invalidPayload }
+        guard batch.version == 1 else { throw BrowserOrderLinkError.unsupportedVersion(batch.version) }
+        guard !batch.orders.isEmpty, Set(batch.orders.map(\.orderID)).count == batch.orders.count,
+              batch.orders.allSatisfy({ $0.version == 1 && $0.recipient.isComplete &&
+                  $0.orderID.range(of: #"^[0-9]{4,}$"#, options: .regularExpression) != nil }) else {
+            throw BrowserOrderLinkError.invalidPayload
+        }
+        return batch.orders
+    }
+
+    private static func payloadData(_ url: URL, expectedHost: String) throws -> Data {
+        guard url.scheme?.lowercased() == scheme,
+              url.host?.lowercased() == expectedHost,
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            throw BrowserOrderLinkError.invalidURL
+        }
+        guard let encoded = components.queryItems?.first(where: { $0.name == "payload" })?.value,
+              !encoded.isEmpty else {
+            throw BrowserOrderLinkError.payloadMissing
+        }
+        guard encoded.utf8.count <= ((maximumPayloadBytes + 2) / 3) * 4 else { throw BrowserOrderLinkError.payloadTooLarge }
+        guard let data = base64URLDecoded(encoded), data.count <= maximumPayloadBytes else {
+            throw BrowserOrderLinkError.invalidPayload
+        }
+        return data
     }
 
     private static func base64URLEncoded(_ data: Data) -> String {

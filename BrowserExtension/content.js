@@ -14,21 +14,78 @@
     toastTimer = setTimeout(() => { toast.hidden = true; }, 5_000);
   }
 
-  function sendCurrentOrder(shadow, button) {
-    const order = globalThis.LabelHelperEtsy.extractOrder(document, location.href);
-    if (!globalThis.LabelHelperEtsy.isCompleteAddress(order.recipient)) {
-      showToast(shadow, "Empfängeradresse nicht gefunden. Bitte zuerst die Bestelldetails mit der Versandadresse öffnen.", "error");
-      return;
-    }
+  let preparedSelection;
 
-    button.disabled = true;
-    button.querySelector("span").textContent = "Wird übertragen …";
-    showToast(shadow, `Bestellung #${order.orderID} wird in Label Helper geöffnet.`, "success");
-    location.href = globalThis.LabelHelperEtsy.buildAppURL(order);
-    setTimeout(() => {
+  function selectedRows() {
+    if (document.querySelector('[role="dialog"][aria-modal="true"],dialog[open]')) return new Map();
+    return globalThis.LabelHelperEtsy.selectedOrderRows(document);
+  }
+
+  function selectionKey(rows) {
+    return JSON.stringify([location.href, ...rows.keys()]);
+  }
+
+  function updateCaption(button) {
+    if (button.disabled) return;
+    const caption = button.querySelector("span");
+    try {
+      const rows = selectedRows();
+      const count = rows.size;
+      caption.textContent = count ? `${count} zum Sammeldruck` : "An Label Helper senden";
+    } catch {
+      caption.textContent = "Auswahl prüfen";
+    }
+  }
+
+  async function sendCurrentOrder(shadow, button) {
+    const api = globalThis.LabelHelperEtsy;
+    const caption = button.querySelector("span");
+    try {
+      const rows = selectedRows();
+      let link;
+      if (rows.size) {
+        const key = selectionKey(rows);
+        if (preparedSelection?.key === key) {
+          link = preparedSelection.link;
+          preparedSelection = null;
+        } else {
+          const orders = api.selectionOrders(document, rows, location.href);
+          if (orders.some(order => !api.isCompleteAddress(order.recipient))) {
+            button.disabled = true;
+            caption.textContent = "Lade Bestelldetails …";
+            // Keep requests sequential and obtain a fresh user click for the
+            // external app link after loading (also required by Safari).
+            for (let i = 0; i < orders.length; i++) {
+              if (!api.isCompleteAddress(orders[i].recipient)) orders[i] = await api.loadSelectedDetails(orders[i]);
+            }
+            if (selectionKey(selectedRows()) !== key) throw new Error("Die Auswahl hat sich geändert. Bitte erneut prüfen.");
+            preparedSelection = { key, link: api.buildBatchURL(orders) };
+            button.disabled = false;
+            caption.textContent = `${orders.length} zum Sammeldruck`;
+            showToast(shadow, "Bestelldetails geladen. Klicke zum Übernehmen erneut.", "success");
+            return;
+          }
+          link = api.buildBatchURL(orders);
+        }
+        showToast(shadow, "Die Auswahl wird im Sammeldruck geöffnet.", "success");
+      } else {
+        const order = api.extractOrder(document, location.href);
+        if (!api.isCompleteAddress(order.recipient)) {
+          throw new Error("Empfängeradresse nicht gefunden. Bitte zuerst die Bestelldetails mit der Versandadresse öffnen.");
+        }
+        link = api.buildAppURL(order);
+        showToast(shadow, `Bestellung #${order.orderID} wird in Label Helper geöffnet.`, "success");
+      }
+      button.disabled = true;
+      caption.textContent = "Wird übertragen …";
+      location.href = link;
+      setTimeout(() => { button.disabled = false; updateCaption(button); }, 1_500);
+    } catch (error) {
+      preparedSelection = null;
       button.disabled = false;
-      button.querySelector("span").textContent = "An Label Helper senden";
-    }, 1_500);
+      updateCaption(button);
+      showToast(shadow, error.message || "Die Auswahl konnte nicht übernommen werden.", "error");
+    }
   }
 
   function render() {
@@ -94,11 +151,22 @@
     const button = shadow.querySelector(".label-helper-button");
     button.addEventListener("click", () => sendCurrentOrder(shadow, button));
     document.body.appendChild(host);
+    updateCaption(button);
   }
 
+  function refreshButton() {
+    const button = document.getElementById(ROOT_ID)?.shadowRoot?.querySelector(".label-helper-button");
+    if (button) updateCaption(button);
+  }
+
+  document.addEventListener("change", () => {
+    preparedSelection = null;
+    refreshButton();
+  });
   render();
   const observer = new MutationObserver(() => {
     if (!document.getElementById(ROOT_ID)) render();
+    else refreshButton();
   });
-  observer.observe(document.documentElement, { childList: true, subtree: true });
+  observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-checked", "checked"] });
 })();

@@ -250,6 +250,23 @@ do {
     try require(decodedBrowserOrder.recipient.name == "Mia Muster", "Browser recipient was not preserved")
     try require(decodedBrowserOrder.sourceURL == browserOrder.sourceURL, "Browser source URL was not preserved")
 
+    func browserBatchURL(_ orders: [BrowserOrderPayload]) throws -> URL {
+        let data = try JSONSerialization.jsonObject(with: JSONEncoder().encode(orders))
+        let json = try JSONSerialization.data(withJSONObject: ["version": 1, "orders": data])
+        let encoded = json.base64EncodedString().replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+        return URL(string: "munbyn-labeler://etsy-orders?payload=\(encoded)")!
+    }
+    let second = BrowserOrderPayload(orderID: "987654322", recipient: etsyOrders[1].recipientAddress, packingNote: "2 × Capy")
+    let decodedBatch = try BrowserOrderLink.decodeBatch(browserBatchURL([second, browserOrder]))
+    try require(decodedBatch == [second, browserOrder], "Browser batch changed order or lost recipient details")
+    for invalid in [[], [browserOrder, browserOrder], [BrowserOrderPayload(orderID: "9999", recipient: incompleteRecipient)]] {
+        do {
+            _ = try BrowserOrderLink.decodeBatch(browserBatchURL(invalid))
+            throw SelfTestFailure.assertion("Invalid browser selection accepted")
+        } catch BrowserOrderLinkError.invalidPayload {}
+    }
+
     let legacyJobJSON = """
     {"id":"00000000-0000-0000-0000-000000000001","sourceURL":"file:///tmp/label.pdf","sourceFingerprint":"legacy","createdAt":0,"status":"ready"}
     """

@@ -35,6 +35,7 @@ final class AppStore: ObservableObject {
     private enum ImportRequest {
         case file(FileImport)
         case browser(BrowserOrderPayload)
+        case browserBatch([BrowserOrderPayload])
     }
 
     @Published var showPrinterConnection = false
@@ -361,8 +362,13 @@ final class AppStore: ObservableObject {
     }
 
     func handleIncomingURL(_ url: URL) {
-        do { enqueueImport(.browser(try BrowserOrderLink.decode(url))) }
-        catch { lastMessage = "Browser-Import fehlgeschlagen: \(error.localizedDescription)" }
+        do {
+            if url.host?.lowercased() == BrowserOrderLink.batchHost {
+                enqueueImport(.browserBatch(try BrowserOrderLink.decodeBatch(url)))
+            } else {
+                enqueueImport(.browser(try BrowserOrderLink.decode(url)))
+            }
+        } catch { lastMessage = "Browser-Import fehlgeschlagen: \(error.localizedDescription)" }
     }
 
     func requestFileImport(_ kind: FileImport) {
@@ -375,6 +381,12 @@ final class AppStore: ObservableObject {
     }
 
     func presentNextImport() {
+        if !shippingBusy, showOrderBatch, case .browserBatch(let orders) = pendingImports.first {
+            pendingImports.removeFirst()
+            collectBrowserBatch(orders)
+            presentNextImport()
+            return
+        }
         guard !pendingImports.isEmpty, !shippingBusy, fileImport == nil, !dismissingPreviewForImport,
               !showOrderBatch, !showBrowserOrderReview, !showEtsyImportReview, !showEtsyImportError else { return }
         if previewJob != nil || letterFlowPreview != nil || postagePreview != nil {
@@ -386,6 +398,8 @@ final class AppStore: ObservableObject {
         case .file(let kind):
             fileImport = kind
             showImporter = true
+        case .browserBatch(let orders):
+            collectBrowserBatch(orders)
         case .browser(let order):
             incomingBrowserOrder = order
             showBrowserOrderReview = true

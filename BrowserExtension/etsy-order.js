@@ -168,6 +168,17 @@
         // Etsy also ships non-JSON script blocks. They are intentionally ignored.
       }
     }
+    for (const script of document.scripts || []) {
+      if (script.src || script.type === "application/json") continue;
+      const source = script.textContent?.trim() || "";
+      if (source.length > 5_000_000 || !source.includes("Etsy.Context.addData(")) continue;
+      for (const line of source.split("\n")) {
+        const match = line.match(/^\s*(?:window\.)?Etsy\.Context\.addData\((\{.*\})\);?\s*$/);
+        if (match) {
+          try { documents.push(JSON.parse(match[1])); } catch (_) { /* Non-JSON script. */ }
+        }
+      }
+    }
     return documents;
   }
 
@@ -200,7 +211,7 @@
     return findOrderIDInData(dataDocuments) || "Unbekannt";
   }
 
-  function orderDetails(documents, orderID) {
+  function orderDetails(documents, orderID, scopedAddress = false) {
     let address = null;
     let packingNote = "";
     let hasOtherOrder = false;
@@ -212,8 +223,11 @@
           hasOtherOrder = true;
           return;
         }
-        const shipping = record.shipping_address || record.shippingAddress || record;
-        if (!isCompleteAddress(address)) address = findAddressInData(shipping);
+        const shipping = record.shipping_address || record.shippingAddress || record.ship_to || record.recipient_address;
+        if (!isCompleteAddress(address)) {
+          address = shipping ? findAddressInData(shipping)
+            : scopedAddress ? addressFromObject(record) : findAddressInData(record);
+        }
         const rows = record.transactions || record.line_items || record.items;
         if (packingNote || !Array.isArray(rows)) return;
         const lines = rows.map((row) => {
@@ -279,6 +293,86 @@
     };
   }
 
+  // Resolve each checked control against its own order row. Never use an
+  // address from the surrounding list as a fallback for a selected order.
+  function selectedOrderRows(document) {
+    const result = new Map();
+    const checked = document.querySelectorAll('input[type="checkbox"]:checked,[role="checkbox"][aria-checked="true"]');
+    for (const box of checked) {
+      const labelledBy = (box.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean)
+        .map(id => document.getElementById(id)?.textContent);
+      const label = [box.id, box.name, box.getAttribute("aria-label"), box.labels?.[0]?.textContent, ...labelledBy].map(clean).join(" ");
+      if (/select all|alle auswählen|alle bestellungen auswählen/i.test(label)) continue;
+      let row = box.closest("[data-order-id],[data-receipt-id]") || box.closest('tr,li,article,[role="row"]');
+      if (!row) {
+        for (let parent = box.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
+          if (parent.querySelectorAll('input[type="checkbox"],[role="checkbox"]').length !== 1) break;
+          if (parent.querySelector('a[href*="order_id="],a[href*="receipt_id="],a[href*="/orders/"]')) {
+            row = parent;
+            break;
+          }
+        }
+      }
+      const attrID = row?.dataset?.orderId || row?.dataset?.receiptId;
+      const labelledID = label.match(/(?:order|receipt|bestellung)[^0-9]{0,30}([0-9]{4,})/i)?.[1];
+      const linkedIDs = new Set();
+      for (const link of row?.querySelectorAll('a[href]') || []) {
+        const href = link.getAttribute("href") || "";
+        const id = href.match(/[?&](?:order_id|receipt_id)=(\d{4,})(?:[&#]|$)/i)?.[1]
+          || href.match(/\/(?:orders?|receipts?)\/(\d{4,})(?:[/?#]|$)/i)?.[1];
+        if (id) linkedIDs.add(id);
+      }
+      const rowNumbers = new Set(Array.from((row?.textContent || "").matchAll(/(?:#|Bestellung\s+|Order\s+)(\d{4,})\b/gi), m => m[1]));
+      const rowID = rowNumbers.size === 1 ? [...rowNumbers][0] : null;
+      const id = attrID || labelledID || (linkedIDs.size === 1 ? [...linkedIDs][0] : null)
+        || rowID || (/order|receipt|bestellung/i.test(label) ? box.value : null);
+      if (!/^\d{4,}$/.test(id || "")) {
+        if (/order|receipt|bestellung/i.test(label)) throw new Error("Eine markierte Bestellung hat keine erkennbare Bestellnummer.");
+        continue;
+      }
+      if ((labelledID && id !== labelledID) || (linkedIDs.size && (!linkedIDs.has(id) || linkedIDs.size > 1))) {
+        throw new Error("Die markierte Zeile enthält mehrere Bestellnummern. Bitte die Bestelldetails öffnen.");
+      }
+      result.set(id, row);
+    }
+    return result;
+  }
+
+  function selectionOrders(document, rows, pageURL) {
+    const documents = jsonDocuments(document);
+    return Array.from(rows, ([orderID, row]) => {
+      const details = orderDetails(documents, orderID, true);
+      const address = isCompleteAddress(details.address) ? details.address : row && addressFromDocument(row);
+      const url = new URL(pageURL);
+      url.pathname = url.pathname.replace(/(\/(?:orders?|receipts?)\/)\d{4,}(?=\/|$)/i, (_, prefix) => prefix + orderID);
+      url.searchParams.delete("receipt_id");
+      url.searchParams.set("order_id", orderID);
+      return { version: 1, orderID, recipient: address, packingNote: details.packingNote || (row ? visiblePackingNote(row) : ""), sourceURL: url.href };
+    });
+  }
+
+  async function loadSelectedDetails(order) {
+    // Read the same seller page as opening the detail link interactively.
+    const response = await fetch(order.sourceURL, { credentials: "same-origin", mode: "same-origin" });
+    if (!response.ok) throw new Error("Bestelldetails konnten nicht geladen werden.");
+    const doc = new DOMParser().parseFromString(await response.text(), "text/html");
+    const id = order.orderID;
+    const panel = doc.querySelector(`[data-order-id="${id}"],[data-receipt-id="${id}"]`);
+    const [resolved] = selectionOrders(doc, new Map([[id, panel]]), order.sourceURL);
+    if (!isCompleteAddress(resolved.recipient)) {
+      throw new Error(`Adresse zu #${id} fehlt. Öffne die Bestelldetails und wähle „Zum Sammeldruck“.`);
+    }
+    return { ...resolved, packingNote: resolved.packingNote || order.packingNote };
+  }
+
+  function buildBatchURL(orders) {
+    const json = JSON.stringify({ version: 1, orders });
+    if (new TextEncoder().encode(json).length > 65536) {
+      throw new Error("Die Auswahl ist zu groß. Übernimm die Bestellungen in kleineren Gruppen.");
+    }
+    return `munbyn-labeler://etsy-orders?payload=${base64URL(json)}`;
+  }
+
   function base64URL(value) {
     const bytes = new TextEncoder().encode(value);
     let binary = "";
@@ -299,7 +393,7 @@
   }
 
   return {
-    buildAppURL,
+    buildAppURL, buildBatchURL, selectedOrderRows, selectionOrders, loadSelectedDetails,
     extractOrder,
     findAddressInData,
     findOrderIDInData,

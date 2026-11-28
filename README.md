@@ -164,7 +164,7 @@ gemeinsamen Etikett drucken, sodass die Marke nicht ausgeschnitten werden muss.
 
 ## Sammeldruck für Etsy-Briefe
 
-Beim Import aus dem Browser fügt **Zum Sammeldruck** die Bestellung zur lokalen Sammlung hinzu. In einer Etsy-CSV lassen sich mehrere Bestellungen per ⌘-Klick oder **Alle auswählen** übernehmen. Unter **Versenden → Sammeldruck** kannst du die Empfänger und Packhinweise prüfen, Bestellungen entfernen und die Briefe gemeinsam auf dem verbundenen RW403B drucken.
+Markiere die gewünschten Bestellungen in der Etsy-Übersicht und klicke auf **zum Sammeldruck**. Falls die Erweiterung zuerst Bestelldetails nachlädt, bestätige die Übergabe mit einem zweiten Klick. Label Helper öffnet die Sammlung zur Prüfung. Beim Einzelimport aus dem Browser fügt **Zum Sammeldruck** die Bestellung zur lokalen Sammlung hinzu. In einer Etsy-CSV lassen sich mehrere Bestellungen per ⌘-Klick oder **Alle auswählen** übernehmen. Unter **Versenden → Sammeldruck** kannst du die Empfänger und Packhinweise prüfen, Bestellungen entfernen und die Briefe gemeinsam auf dem verbundenen RW403B drucken.
 
 Bei frankierten Briefen wählst du das Porto pro Brief. Jede Bestellung erhält eine eigene Marke dieser Portostufe. **Nach diesem Brief anhalten** lässt den aktuellen Brief fertig werden. Nach einer Unterbrechung bleiben offene Bestellungen gesammelt. Einen bereits gestarteten Brief kannst du im Label-Verlauf prüfen.
 

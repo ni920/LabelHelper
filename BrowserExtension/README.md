@@ -5,6 +5,10 @@ Die Erweiterung setzt unten rechts auf die Etsy-Bestellseite den Button
 die App auf deinem Mac. Du wählst dort Brief oder Paket und prüfst die Adresse.
 Menge, Artikel und Variante erscheinen bei Briefen auf Endlosrolle als abtrennbarer Packhinweis. Es wird nichts automatisch gedruckt.
 
+## Mehrere Bestellungen übernehmen
+
+Markiere auf der Etsy-Bestellseite die gewünschten Bestellungen. Der Button der Erweiterung zeigt die Anzahl an, etwa **3 zum Sammeldruck**. Er übernimmt die Auswahl in Label Helper ab 0.10.1. Wenn Etsy die Adressen erst in den Bestelldetails zeigt, lädt die Erweiterung sie nach und bittet um einen zweiten Klick. Sind Adressen weiterhin unvollständig, nennt sie die betroffene Bestellung. In der App prüfst du die Sammlung und startest den Briefdruck.
+
 ## Welchen Weg soll ich nehmen?
 
 | Du verwendest … | So gehst du vor |

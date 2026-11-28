@@ -29,6 +29,7 @@ function install({ complete = true } = {}) {
     querySelector: (selector) => selector === ".label-helper-toast" ? toast : button
   };
   const document = {
+    querySelector: () => null, querySelectorAll: () => [], addEventListener() {},
     body: { appendChild(host) { roots.set(host.id, host); } },
     documentElement: {},
     getElementById: (id) => roots.get(id),

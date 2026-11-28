@@ -2,6 +2,12 @@ import Foundation
 import LabelCore
 
 extension AppStore {
+    func collectBrowserBatch(_ orders: [BrowserOrderPayload]) {
+        let entries = orders.map { BatchOrder(orderID: $0.orderID, recipient: $0.recipient, packingNote: $0.packingNote ?? "") }
+        _ = orderBatch.add(entries)
+        showOrderBatch = true
+    }
+
     func collectBrowserOrder() {
         guard !shippingBusy, let order = incomingBrowserOrder,
               orderBatch.add([BatchOrder(orderID: order.orderID, recipient: order.recipient, packingNote: order.packingNote ?? "")]) else { return }

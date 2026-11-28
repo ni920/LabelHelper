@@ -163,3 +163,24 @@ test("reads visible quantity and colour inside the selected order panel", () => 
   document.querySelector = () => panel;
   assert.equal(extractOrder(document, "https://www.etsy.com/your/orders/12345").packingNote, "2 × Capy · Gold");
 });
+
+test("batch selection resolves only checked order rows and preserves their order", () => {
+  const api = require("../etsy-order.js");
+  const box = id => ({
+    id: "select-order-" + id, getAttribute: () => "", closest: () => ({
+      dataset: { orderId: id }, querySelectorAll: () => [], textContent: "#" + id
+    })
+  });
+  const docs = ["1001", "1002", "1003"].map(id => ({ receipt_id: id,
+    shipping_address: { name: id, first_line: "Testweg", city: "Stadt", zip: "12345" },
+    transactions: [{ title: "Artikel " + id, quantity: 1 }] }));
+  const document = { querySelectorAll: selector => selector.startsWith("input")
+    ? [box("1003"), box("1001"), box("1003")] : [{ textContent: JSON.stringify(docs) }] };
+  const orders = api.selectionOrders(document, api.selectedOrderRows(document), "https://www.etsy.com/your/orders/sold");
+  assert.deepEqual(orders.map(o => [o.orderID, o.recipient.name, o.packingNote]),
+    [["1003", "1003", "1 × Artikel 1003"], ["1001", "1001", "1 × Artikel 1001"]]);
+  const link = new URL(api.buildBatchURL(orders));
+  assert.equal(link.hostname, "etsy-orders");
+  assert.deepEqual(JSON.parse(Buffer.from(link.searchParams.get("payload"), "base64url")).orders, orders);
+  assert.throws(() => api.buildBatchURL([{ packingNote: "A".repeat(65536) }]), /zu groß/);
+});
